@@ -1,0 +1,115 @@
+<span id="markdown-mermaid" aria-hidden="true" data-config="{&quot;darkModeTheme&quot;:&quot;dark&quot;,&quot;lightModeTheme&quot;:&quot;default&quot;,&quot;maxTextSize&quot;:50000,&quot;clickDrag&quot;:&quot;alt&quot;,&quot;showControls&quot;:&quot;onHoverOrFocus&quot;,&quot;resizable&quot;:true,&quot;maxHeight&quot;:&quot;&quot;}"></span>
+                <h1 id="hmi-project-agents">HMI Project AGENTS</h1>
+<h2 id="1-project-identity">1. Project Identity</h2>
+<ul>
+<li>项目名称: <code>HMI Host</code></li>
+<li>角色: 作为上位机通过串口访问下位机（STM32 控制系统）</li>
+<li>目标: 跨平台 Flutter 工程，统一协议层与 UI 层</li>
+</ul>
+<h2 id="2-source-of-truth-documents">2. Source-of-Truth Documents</h2>
+<ul>
+<li>设备与协议主文档: <a href="/C:/Users/USER/Documents/dev/HMI/doc/%E4%B8%8B%E4%BD%8D%E6%9C%BA%E7%B3%BB%E7%BB%9F%E8%AF%B4%E6%98%8E%E4%B9%A6.html">doc/下位机系统说明书.md</a></li>
+<li>协议速查: <a href="/C:/Users/USER/Documents/dev/HMI/doc/%E5%8D%8F%E8%AE%AE%E5%AF%B9%E6%8E%A5%E5%BF%AB%E9%80%9F%E6%8C%87%E5%8D%97.html">doc/协议对接快速指南.md</a></li>
+<li>架构说明: <a href="/C:/Users/USER/Documents/dev/HMI/doc/%E6%9E%B6%E6%9E%84%E8%AF%B4%E6%98%8E.html">doc/架构说明.md</a></li>
+<li>界面参考: <a href="/C:/Users/USER/Documents/dev/HMI/doc/%E7%95%8C%E9%9D%A2%E5%8F%82%E8%80%83%E8%AF%B4%E6%98%8E.html">doc/界面参考说明.md</a></li>
+<li>协议关键点:
+<ul>
+<li>20 字节固定帧</li>
+<li>请求地址 <code>0xAF</code>，响应地址 <code>0xBF</code></li>
+<li>CRC16-Modbus（低字节在前）</li>
+<li>UART3 为上位机接口</li>
+</ul>
+</li>
+</ul>
+<h2 id="3-confirmed-technical-baseline">3. Confirmed Technical Baseline</h2>
+<ul>
+<li>Flutter 安装路径: <code>C:\Users\USER\Flutter</code></li>
+<li>当前框架版本: <code>Flutter 3.41.7 / Dart 3.11.5</code></li>
+<li>目标平台: <code>Windows/macOS/Linux/Android/iOS/Web</code></li>
+<li>串口联调优先平台: 桌面端（Windows/Linux/macOS）</li>
+<li>Windows 构建前置: 必须开启 Developer Mode（符号链接权限），否则插件阶段会报
+<code>Building with plugins requires symlink support</code></li>
+<li>已提供构建入口:
+<ul>
+<li><code>CMakePresets.json</code></li>
+<li><code>.vscode/tasks.json</code></li>
+<li><code>.vscode/launch.json</code></li>
+</ul>
+</li>
+</ul>
+<h2 id="4-architecture-and-module-boundaries">4. Architecture and Module Boundaries</h2>
+<ul>
+<li><code>lib/core/protocol</code>: 协议编解码、CRC 校验</li>
+<li><code>lib/core/serial</code>: 串口抽象与平台实现</li>
+<li><code>lib/features/hmi</code>: 业务控制器与界面</li>
+</ul>
+<p>规则:</p>
+<ul>
+<li>协议逻辑不得散落在 UI 中</li>
+<li>串口原始字节解析应集中在控制器/协议层</li>
+<li>UI 仅做状态展示与命令触发</li>
+</ul>
+<h2 id="5-workflow-and-debugging-guidance">5. Workflow and Debugging Guidance</h2>
+<p>推荐流程:</p>
+<ol>
+<li>先阅读协议文档再改代码</li>
+<li>先做协议与串口连通性，再做界面扩展</li>
+<li>每次新增功能码时，先补协议构帧/解析，再补 UI</li>
+</ol>
+<p>联调要点:</p>
+<ul>
+<li>固定检查帧长度是否 20</li>
+<li>固定检查 CRC16 是否通过</li>
+<li>非法帧不得进入业务处理路径</li>
+<li>Windows 构建若出现 CMake 生成器/平台冲突，先清理缓存:
+<ul>
+<li>删除 <code>build/</code></li>
+<li>删除 <code>windows/flutter/ephemeral/</code></li>
+<li>再执行 <code>flutter pub get</code> 与 <code>flutter run -d windows</code></li>
+</ul>
+</li>
+</ul>
+<h2 id="6-coding-constraints-and-review-focus">6. Coding Constraints and Review Focus</h2>
+<ul>
+<li>保持跨平台单代码库，不允许业务层出现平台分叉逻辑</li>
+<li>新增功能优先保证协议正确性与错误可观测性（日志/状态提示）</li>
+<li>对外接口参数必须有边界保护（字节范围、空值）</li>
+<li>UI 约束: 必须使用响应式布局，禁止依赖固定宽高导致 <code>RenderFlex overflow</code>
+<ul>
+<li>小屏自动切换紧凑布局（菜单/表单/日志区域）</li>
+<li>长文本必须 <code>ellipsis</code> 或换行</li>
+<li>日志区使用 <code>Expanded/Flexible</code>，不得写死高度</li>
+</ul>
+</li>
+</ul>
+<h2 id="7-historical-pitfalls-to-avoid">7. Historical Pitfalls to Avoid</h2>
+<ul>
+<li>不要假设串口字节流按帧对齐到达，必须做缓冲与粘包拆包</li>
+<li>不要在 UI 层拼接原始帧，避免维护失控</li>
+<li>Android 构建可能受本机 Java 版本影响，需按 Flutter 提示处理</li>
+<li>Windows 下最常见两类问题:
+<ul>
+<li>符号链接未开启（Developer Mode）</li>
+<li>历史 CMake 缓存导致生成器平台不一致</li>
+</ul>
+</li>
+</ul>
+<h2 id="8-maintenance-checklist">8. Maintenance Checklist</h2>
+<ul>
+<li>变更协议时同步更新:
+<ul>
+<li>协议层代码</li>
+<li>UI 指令入口</li>
+<li>README 协议说明</li>
+</ul>
+</li>
+<li>变更构建/调试流程时同步更新:
+<ul>
+<li><code>.vscode/tasks.json</code></li>
+<li><code>.vscode/launch.json</code></li>
+<li><code>CMakePresets.json</code></li>
+<li><code>README.md</code> 的 VSCode/CMake 章节</li>
+</ul>
+</li>
+<li>新增稳定结论后，回写本文件，避免知识只留在聊天记录</li>
+</ul>
