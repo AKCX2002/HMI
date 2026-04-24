@@ -1,0 +1,69 @@
+# HMI Project AGENTS
+
+## 1. Project Identity
+
+- 项目名称: `HMI Host`
+- 角色: 作为上位机通过串口访问下位机（STM32 控制系统）
+- 目标: 跨平台 Flutter 工程，统一协议层与 UI 层
+
+## 2. Source-of-Truth Documents
+
+- 设备与协议主文档: [doc/下位机系统说明书.md](/C:/Users/USER/Documents/dev/HMI/doc/下位机系统说明书.md)
+- 协议速查: [doc/协议对接快速指南.md](/C:/Users/USER/Documents/dev/HMI/doc/协议对接快速指南.md)
+- 架构说明: [doc/架构说明.md](/C:/Users/USER/Documents/dev/HMI/doc/架构说明.md)
+- 界面参考: [doc/界面参考说明.md](/C:/Users/USER/Documents/dev/HMI/doc/界面参考说明.md)
+- 协议关键点:
+  - 20 字节固定帧
+  - 请求地址 `0xAF`，响应地址 `0xBF`
+  - CRC16-Modbus（低字节在前）
+  - UART3 为上位机接口
+
+## 3. Confirmed Technical Baseline
+
+- Flutter 安装路径: `C:\Users\USER\Flutter`
+- 当前框架版本: `Flutter 3.41.7 / Dart 3.11.5`
+- 目标平台: `Windows/macOS/Linux/Android/iOS/Web`
+- 串口联调优先平台: 桌面端（Windows/Linux/macOS）
+
+## 4. Architecture and Module Boundaries
+
+- `lib/core/protocol`: 协议编解码、CRC 校验
+- `lib/core/serial`: 串口抽象与平台实现
+- `lib/features/hmi`: 业务控制器与界面
+
+规则:
+- 协议逻辑不得散落在 UI 中
+- 串口原始字节解析应集中在控制器/协议层
+- UI 仅做状态展示与命令触发
+
+## 5. Workflow and Debugging Guidance
+
+推荐流程:
+1. 先阅读协议文档再改代码
+2. 先做协议与串口连通性，再做界面扩展
+3. 每次新增功能码时，先补协议构帧/解析，再补 UI
+
+联调要点:
+- 固定检查帧长度是否 20
+- 固定检查 CRC16 是否通过
+- 非法帧不得进入业务处理路径
+
+## 6. Coding Constraints and Review Focus
+
+- 保持跨平台单代码库，不允许业务层出现平台分叉逻辑
+- 新增功能优先保证协议正确性与错误可观测性（日志/状态提示）
+- 对外接口参数必须有边界保护（字节范围、空值）
+
+## 7. Historical Pitfalls to Avoid
+
+- 不要假设串口字节流按帧对齐到达，必须做缓冲与粘包拆包
+- 不要在 UI 层拼接原始帧，避免维护失控
+- Android 构建可能受本机 Java 版本影响，需按 Flutter 提示处理
+
+## 8. Maintenance Checklist
+
+- 变更协议时同步更新:
+  - 协议层代码
+  - UI 指令入口
+  - README 协议说明
+- 新增稳定结论后，回写本文件，避免知识只留在聊天记录
