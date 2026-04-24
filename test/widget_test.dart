@@ -35,7 +35,7 @@ void main() {
     final app = HmiHostApp(controller: HmiController(_FakeSerialTransport()));
     await tester.pumpWidget(app);
 
-    expect(find.text('HMI Host Console'), findsOneWidget);
-    expect(find.text('协议指令'), findsOneWidget);
+    expect(find.text('上位机控制台'), findsOneWidget);
+    expect(find.text('连接与指令'), findsOneWidget);
   });
 }

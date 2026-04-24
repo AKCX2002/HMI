@@ -1,0 +1,54 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 23,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "win-base",
+      "displayName": "Windows Base",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "sourceDir": "${sourceDir}/windows",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "TRUE"
+      }
+    },
+    {
+      "name": "win-debug",
+      "displayName": "Windows Debug (Clang)",
+      "inherits": "win-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "C:/Program Files/LLVM/bin/clang.exe",
+        "CMAKE_CXX_COMPILER": "C:/Program Files/LLVM/bin/clang++.exe"
+      }
+    },
+    {
+      "name": "win-release",
+      "displayName": "Windows Release (Clang)",
+      "inherits": "win-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_C_COMPILER": "C:/Program Files/LLVM/bin/clang.exe",
+        "CMAKE_CXX_COMPILER": "C:/Program Files/LLVM/bin/clang++.exe"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "build-debug",
+      "displayName": "Build Debug",
+      "configurePreset": "win-debug",
+      "jobs": 10
+    },
+    {
+      "name": "build-release",
+      "displayName": "Build Release",
+      "configurePreset": "win-release",
+      "jobs": 10
+    }
+  ]
+}

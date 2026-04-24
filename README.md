@@ -88,3 +88,31 @@ doc/
 dart analyze
 flutter test
 ```
+
+## 8. VSCode 与 CMake 工作流
+
+- 已提供:
+  - `.vscode/launch.json`
+  - `.vscode/tasks.json`
+  - `CMakePresets.json`
+- 常用任务:
+  - `Windows: Enable Developer Mode (open settings)`
+  - `Flutter: run windows`
+  - `Flutter: build windows debug`
+  - `CMake: Configure+Build (debug)`
+
+### 8.1 必须先启用符号链接
+
+若提示 `Building with plugins requires symlink support`，先启用 Windows 开发者模式:
+
+```powershell
+start ms-settings:developers
+```
+
+启用后执行:
+
+```powershell
+flutter clean
+flutter pub get
+flutter run -d windows
+```
