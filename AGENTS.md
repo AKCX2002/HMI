@@ -24,6 +24,12 @@
 - 当前框架版本: `Flutter 3.41.7 / Dart 3.11.5`
 - 目标平台: `Windows/macOS/Linux/Android/iOS/Web`
 - 串口联调优先平台: 桌面端（Windows/Linux/macOS）
+- Windows 构建前置: 必须开启 Developer Mode（符号链接权限），否则插件阶段会报
+  `Building with plugins requires symlink support`
+- 已提供构建入口:
+  - `CMakePresets.json`
+  - `.vscode/tasks.json`
+  - `.vscode/launch.json`
 
 ## 4. Architecture and Module Boundaries
 
@@ -47,18 +53,29 @@
 - 固定检查帧长度是否 20
 - 固定检查 CRC16 是否通过
 - 非法帧不得进入业务处理路径
+- Windows 构建若出现 CMake 生成器/平台冲突，先清理缓存:
+  - 删除 `build/`
+  - 删除 `windows/flutter/ephemeral/`
+  - 再执行 `flutter pub get` 与 `flutter run -d windows`
 
 ## 6. Coding Constraints and Review Focus
 
 - 保持跨平台单代码库，不允许业务层出现平台分叉逻辑
 - 新增功能优先保证协议正确性与错误可观测性（日志/状态提示）
 - 对外接口参数必须有边界保护（字节范围、空值）
+- UI 约束: 必须使用响应式布局，禁止依赖固定宽高导致 `RenderFlex overflow`
+  - 小屏自动切换紧凑布局（菜单/表单/日志区域）
+  - 长文本必须 `ellipsis` 或换行
+  - 日志区使用 `Expanded/Flexible`，不得写死高度
 
 ## 7. Historical Pitfalls to Avoid
 
 - 不要假设串口字节流按帧对齐到达，必须做缓冲与粘包拆包
 - 不要在 UI 层拼接原始帧，避免维护失控
 - Android 构建可能受本机 Java 版本影响，需按 Flutter 提示处理
+- Windows 下最常见两类问题:
+  - 符号链接未开启（Developer Mode）
+  - 历史 CMake 缓存导致生成器平台不一致
 
 ## 8. Maintenance Checklist
 
@@ -66,4 +83,9 @@
   - 协议层代码
   - UI 指令入口
   - README 协议说明
+- 变更构建/调试流程时同步更新:
+  - `.vscode/tasks.json`
+  - `.vscode/launch.json`
+  - `CMakePresets.json`
+  - `README.md` 的 VSCode/CMake 章节
 - 新增稳定结论后，回写本文件，避免知识只留在聊天记录
