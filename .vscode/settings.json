@@ -1,0 +1,8 @@
+{
+    "cmake.sourceDirectory": "C:/Users/USER/Documents/dev/HMI/windows",
+    "dart.flutterSdkPath": "C:/Users/USER/Flutter",
+    "editor.formatOnSave": true,
+    "cmake.useCMakePresets": "always",
+    "cmake.configureOnOpen": false,
+    "cmake.buildDirectory": "${workspaceFolder}/build"
+}

@@ -1,0 +1,211 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Flutter: pub get",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "pub",
+        "get"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Flutter: clean",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "clean"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Flutter: analyze",
+      "type": "shell",
+      "command": "dart",
+      "args": [
+        "analyze"
+      ],
+      "group": "test",
+      "problemMatcher": "$dart"
+    },
+    {
+      "label": "Flutter: test",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "test"
+      ],
+      "group": "test",
+      "problemMatcher": "$dart"
+    },
+    {
+      "label": "Flutter: run windows",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "run",
+        "-d",
+        "windows"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Flutter: build windows debug",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "build",
+        "windows",
+        "--debug"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Flutter: build windows release",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "build",
+        "windows",
+        "--release"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Flutter: build web release",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "build",
+        "web",
+        "--release"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Flutter: build apk release",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "build",
+        "apk",
+        "--release"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Flutter: build appbundle release",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "build",
+        "appbundle",
+        "--release"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Flutter: build linux release",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "build",
+        "linux",
+        "--release"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Flutter: build macos release",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "build",
+        "macos",
+        "--release"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Flutter: build ios release",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "build",
+        "ios",
+        "--release",
+        "--no-codesign"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "CMake: Configure (win-debug preset)",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--preset",
+        "win-debug"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "CMake: Build (debug preset)",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "--preset",
+        "build-debug"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "CMake: Configure+Build (debug)",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "CMake: Configure (win-debug preset)",
+        "CMake: Build (debug preset)"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Windows: Enable Developer Mode (open settings)",
+      "type": "shell",
+      "command": "start",
+      "args": [
+        "ms-settings:developers"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Flutter: build all release",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Flutter: pub get",
+        "Flutter: build windows release",
+        "Flutter: build web release",
+        "Flutter: build apk release",
+        "Flutter: build appbundle release",
+        "Flutter: build linux release",
+        "Flutter: build macos release",
+        "Flutter: build ios release"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

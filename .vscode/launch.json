@@ -1,0 +1,67 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Flutter Windows (Debug)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "flutterMode": "debug",
+      "deviceId": "windows",
+      "preLaunchTask": "Flutter: pub get"
+    },
+    {
+      "name": "Flutter Windows (Profile)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "flutterMode": "profile",
+      "deviceId": "windows",
+      "preLaunchTask": "Flutter: pub get"
+    },
+    {
+      "name": "Flutter Windows (Release)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "flutterMode": "release",
+      "deviceId": "windows",
+      "preLaunchTask": "Flutter: pub get"
+    },
+    {
+      "name": "Native EXE Debug (build/windows/x64/runner/Debug)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/windows/x64/runner/Debug/hmi_host.exe",
+      "cwd": "${workspaceFolder}",
+      "stopAtEntry": false,
+      "console": "integratedTerminal",
+      "preLaunchTask": "Flutter: build windows debug"
+    },
+    {
+      "name": "Native EXE Debug (build/runner)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/runner/hmi_host.exe",
+      "cwd": "${workspaceFolder}",
+      "stopAtEntry": false,
+      "console": "integratedTerminal",
+      "preLaunchTask": "CMake: Configure+Build (debug)"
+    },
+    {
+      "name": "Attach To Running hmi_host.exe",
+      "type": "cppvsdbg",
+      "request": "attach",
+      "processId": "${command:pickProcess}"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Flutter Run + Attach Native",
+      "configurations": [
+        "Flutter Windows (Debug)",
+        "Attach To Running hmi_host.exe"
+      ]
+    }
+  ]
+}

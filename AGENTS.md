@@ -17,6 +17,11 @@
   - 请求地址 `0xAF`，响应地址 `0xBF`
   - CRC16-Modbus（低字节在前）
   - UART3 为上位机接口
+- 打包机独立节点协议（来自 `Packaging_machine_V1.0`）:
+  - `USART3 / RS485 / 9600 8N1`
+  - 默认节点地址 `0x20`，响应主机地址 `0x00`，广播地址 `0xFF`
+  - 同样使用 20 字节固定帧与 CRC16-Modbus
+  - 功能码 `0x40..0x49`: 启停、状态、出袋、封口、避让、清标志、报警、心跳、版本、故障复位
 
 ## 3. Confirmed Technical Baseline
 
@@ -74,6 +79,8 @@
 ## 7. Historical Pitfalls to Avoid
 
 - 不要假设串口字节流按帧对齐到达，必须做缓冲与粘包拆包
+- 打包机节点响应地址为 `0x00`，接收同步不能只识别 `0xAF/0xBF`
+- XYZ 设备测试 `target_id` 按低字节在前传输: `data[1]=low`，`data[2]=high`
 - 不要在 UI 层拼接原始帧，避免维护失控
 - Android 构建可能受本机 Java 版本影响，需按 Flutter 提示处理
 - Windows 下最常见两类问题:
