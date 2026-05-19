@@ -352,12 +352,13 @@ class HmiController extends ChangeNotifier {
       message: '执行失败',
     );
 
-    // 使用通道对应的 CRC 算法构建帧
+    // 使用帧自身指定的 CRC 算法构建帧（尊重调用者语义，
+    // 不被端口配置覆盖：端口 B 的 DBUS CRC 仅用于接收校验）
     final frameWithCrc = HmiFrame(
       address: request.frame.address,
       function: request.frame.function,
       data: request.frame.data.toList(),
-      crcAlgorithm: config.crcAlgorithm,
+      crcAlgorithm: request.frame.crcAlgorithm,
     );
 
     // 等待前一条命令完成（忽略前条错误，避免链断裂死锁）
