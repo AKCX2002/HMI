@@ -1,7 +1,6 @@
 {
   "version": "2.0.0",
   "tasks": [
-    // ────────────── 依赖 ──────────────
     {
       "label": "Flutter: pub get",
       "type": "shell",
@@ -23,7 +22,6 @@
       "group": "build",
       "problemMatcher": []
     },
-    // ────────────── 分析 & 测试 ──────────────
     {
       "label": "Flutter: analyze",
       "type": "shell",
@@ -32,7 +30,7 @@
         "analyze"
       ],
       "group": "test",
-      "problemMatcher": "$dart"
+      "problemMatcher": []
     },
     {
       "label": "Flutter: test",
@@ -42,9 +40,8 @@
         "test"
       ],
       "group": "test",
-      "problemMatcher": "$dart"
+      "problemMatcher": []
     },
-    // ────────────── Linux 运行/构建 ──────────────
     {
       "label": "Flutter: run linux",
       "type": "shell",
@@ -113,7 +110,6 @@
       "problemMatcher": [],
       "detail": "Run Flutter Linux with software rendering (Wayland GPU fallback)"
     },
-    // ────────────── 交叉平台构建（保留） ──────────────
     {
       "label": "Flutter: build web release",
       "type": "shell",
@@ -138,75 +134,53 @@
       "group": "build",
       "problemMatcher": []
     },
-    // ────────────── Wayland 调试辅助 ──────────────
+    {
+      "label": "CMake: Configure (linux-debug preset)",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--preset",
+        "linux-debug"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "CMake: Build (linux-debug preset)",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "--preset",
+        "build-linux-debug"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "CMake: Configure+Build (linux-debug)",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "CMake: Configure (linux-debug preset)",
+        "CMake: Build (linux-debug preset)"
+      ],
+      "problemMatcher": []
+    },
     {
       "label": "Check Wayland environment",
       "type": "shell",
-      "command": "echo 'WAYLAND_DISPLAY=$WAYLAND_DISPLAY' && echo 'XDG_SESSION_TYPE=$XDG_SESSION_TYPE' && echo 'FLUTTER_DISABLE_GPU=$FLUTTER_DISABLE_GPU' && ldd --version 2>&1 | head -1",
+      "command": "echo 'WAYLAND_DISPLAY=$WAYLAND_DISPLAY' && echo 'XDG_SESSION_TYPE=$XDG_SESSION_TYPE' && echo 'FLUTTER_DISABLE_GPU=$FLUTTER_DISABLE_GPU'",
       "group": "test",
       "problemMatcher": [],
       "detail": "Print Wayland/GPU environment variables for debugging"
+    },
+    {
+      "label": "Install Linux build dependencies",
+      "type": "shell",
+      "command": "echo 'For Arch Linux: sudo pacman -S clang gtk3 libx11 pkg-config ninja cmake'",
+      "group": "build",
+      "problemMatcher": [],
+      "detail": "Print Linux build dependency installation commands (Arch Linux)"
     }
   ]
-}
-      "group": "build",
-"problemMatcher": []
-},
-{
-"label": "CMake: Configure (win-debug preset)",
-"type": "shell",
-"command": "cmake",
-"args": [
-  "--preset",
-  "win-debug"
-],
-"group": "build",
-"problemMatcher": []
-},
-{
-"label": "CMake: Build (debug preset)",
-"type": "shell",
-"command": "cmake",
-"args": [
-  "--build",
-  "--preset",
-  "build-debug"
-],
-"group": "build",
-"problemMatcher": []
-},
-{
-"label": "CMake: Configure+Build (debug)",
-"dependsOrder": "sequence",
-"dependsOn": [
-  "CMake: Configure (win-debug preset)",
-  "CMake: Build (debug preset)"
-],
-"problemMatcher": []
-},
-{
-"label": "Windows: Enable Developer Mode (open settings)",
-"type": "shell",
-"command": "start",
-"args": [
-  "ms-settings:developers"
-],
-"problemMatcher": []
-},
-{
-"label": "Flutter: build all release",
-"dependsOrder": "sequence",
-"dependsOn": [
-  "Flutter: pub get",
-  "Flutter: build windows release",
-  "Flutter: build web release",
-  "Flutter: build apk release",
-  "Flutter: build appbundle release",
-  "Flutter: build linux release",
-  "Flutter: build macos release",
-  "Flutter: build ios release"
-],
-"problemMatcher": []
-}
-]
 }

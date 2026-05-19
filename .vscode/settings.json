@@ -1,8 +1,18 @@
 {
-    "cmake.sourceDirectory": "C:/Users/USER/Documents/dev/HMI/windows",
-    "dart.flutterSdkPath": "C:/Users/USER/Flutter",
+    // ── Linux (Arch Linux / Wayland) ──
+    "cmake.sourceDirectory": "${workspaceFolder}/linux",
+    "dart.flutterSdkPath": "/usr/lib/flutter",
     "editor.formatOnSave": true,
     "cmake.useCMakePresets": "always",
     "cmake.configureOnOpen": false,
-    "cmake.buildDirectory": "${workspaceFolder}/build"
+    "cmake.buildDirectory": "${workspaceFolder}/build",
+    "dart.checkForSdkUpdates": false,
+    // ── Wayland 相关 ──
+    "terminal.integrated.env.linux": {
+        "WAYLAND_DISPLAY": "wayland-0",
+        "FLUTTER_DISABLE_GPU": ""
+    },
+    // ── Flutter 调试 ──
+    "dart.debugExternalLibraries": false,
+    "dart.evaluationLogs": true
 }
