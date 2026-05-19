@@ -975,11 +975,22 @@ class HmiController extends ChangeNotifier {
 
   /// 从端口 B 缓冲区提取 printf 文本日志行（以 \n 或 \r\n 结尾）。
   /// 提取后文本字节从缓冲区移除，剩余字节继续走帧解析。
+  ///
+  /// 关键：若缓冲区以协议帧同步字节开头，立即返回，避免 0x0A 误拆帧。
   void _extractTextLogs(_PortChannel channel) {
     final buf = channel.rxBuffer;
+    if (buf.isEmpty) return;
+
+    // 帧同步字节保护：DBUS 帧 data/CRC 可能含 0x0A，
+    // 若首字节为已知帧地址则跳过文本提取，交由帧解析处理。
+    if (_isFrameSyncByte(buf[0])) return;
+
     final portLabel = channel.config.label;
     var newlineAt = buf.indexOf(0x0A); // \n
     while (newlineAt >= 0) {
+      // 拆出行首到换行前的内容前，再次检查行首是否已变成帧字节
+      if (buf.isNotEmpty && _isFrameSyncByte(buf[0])) return;
+
       final end = (newlineAt > 0 && buf[newlineAt - 1] == 0x0D) // \r\n
           ? newlineAt - 1
           : newlineAt;
@@ -996,6 +1007,16 @@ class HmiController extends ChangeNotifier {
       _appendTextLog(text, portLabel);
       buf.clear();
     }
+  }
+
+  /// 判断字节是否为已知协议帧地址同步字节。
+  static bool _isFrameSyncByte(int b) {
+    return b == HmiFrame.appRequestAddress || // 0xAF
+        b == HmiFrame.appResponseAddress ||   // 0xBF
+        b == 0x00 ||                           // 打包机响应主机
+        b == 0x20 ||                           // 遗留节点地址
+        b == 0xFA ||                           // 打包机默认节点
+        b == 0xFF;                             // 广播
   }
 
   @override
