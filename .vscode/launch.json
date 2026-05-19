@@ -1,9 +1,6 @@
 {
   "version": "0.2.0",
   "configurations": [
-    // ═══════════════════════════════════════════
-    //  Flutter Linux (Wayland / X11)
-    // ═══════════════════════════════════════════
     {
       "name": "Flutter Linux (Debug)",
       "request": "launch",
@@ -12,8 +9,8 @@
       "flutterMode": "debug",
       "deviceId": "linux",
       "preLaunchTask": "Flutter: pub get",
-      "args": [
-        "--enable-wayland-ime" // Wayland IME 支持
+      "toolArgs": [
+        "--enable-software-rendering"
       ]
     },
     {
@@ -23,10 +20,7 @@
       "program": "lib/main.dart",
       "flutterMode": "profile",
       "deviceId": "linux",
-      "preLaunchTask": "Flutter: pub get",
-      "args": [
-        "--enable-wayland-ime"
-      ]
+      "preLaunchTask": "Flutter: pub get"
     },
     {
       "name": "Flutter Linux (Release)",
@@ -37,9 +31,6 @@
       "deviceId": "linux",
       "preLaunchTask": "Flutter: pub get"
     },
-    // ═══════════════════════════════════════════
-    //  Native ELF Debug (Linux GDB/LLDB)
-    // ═══════════════════════════════════════════
     {
       "name": "Native ELF Debug (build/linux/x64/debug)",
       "type": "lldb",
@@ -70,34 +61,6 @@
       "request": "attach",
       "pid": "${command:pickProcess}",
       "cwd": "${workspaceFolder}"
-    },
-    // ═══════════════════════════════════════════
-    //  Flutter Linux with Wayland-specific flags
-    // ═══════════════════════════════════════════
-    {
-      "name": "Flutter Linux (Wayland Debug)",
-      "request": "launch",
-      "type": "dart",
-      "program": "lib/main.dart",
-      "flutterMode": "debug",
-      "deviceId": "linux",
-      "preLaunchTask": "Flutter: pub get",
-      "args": [
-        "--enable-wayland-ime",
-        "--disable-gpu" // Wayland 下 GPU 加速有问题时回退软件渲染
-      ]
-    },
-    {
-      "name": "Flutter Linux (Wayland — software render)",
-      "request": "launch",
-      "type": "dart",
-      "program": "lib/main.dart",
-      "flutterMode": "debug",
-      "deviceId": "linux",
-      "preLaunchTask": "Flutter: pub get",
-      "env": {
-        "FLUTTER_DISABLE_GPU": "1" // 强制软件渲染，排查 Wayland GPU 异常
-      }
     }
   ],
   "compounds": [

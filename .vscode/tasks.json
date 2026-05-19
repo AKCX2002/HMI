@@ -49,12 +49,30 @@
       "args": [
         "run",
         "-d",
-        "linux",
-        "--enable-wayland-ime"
+        "linux"
       ],
       "group": "build",
       "problemMatcher": [],
-      "detail": "Run Flutter Linux (Wayland IME enabled)"
+      "detail": "Run Flutter Linux"
+    },
+    {
+      "label": "Flutter: run linux (Wayland)",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "run",
+        "-d",
+        "linux"
+      ],
+      "options": {
+        "env": {
+          "XCURSOR_THEME": "Adwaita",
+          "GDK_BACKEND": "wayland"
+        }
+      },
+      "group": "build",
+      "problemMatcher": [],
+      "detail": "Run Flutter Linux on Wayland (set XCURSOR_THEME)"
     },
     {
       "label": "Flutter: build linux debug",
@@ -91,24 +109,6 @@
       ],
       "group": "build",
       "problemMatcher": []
-    },
-    {
-      "label": "Flutter: run linux (software render)",
-      "type": "shell",
-      "command": "flutter",
-      "args": [
-        "run",
-        "-d",
-        "linux"
-      ],
-      "options": {
-        "env": {
-          "FLUTTER_DISABLE_GPU": "1"
-        }
-      },
-      "group": "build",
-      "problemMatcher": [],
-      "detail": "Run Flutter Linux with software rendering (Wayland GPU fallback)"
     },
     {
       "label": "Flutter: build web release",

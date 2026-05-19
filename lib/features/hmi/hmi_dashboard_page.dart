@@ -610,7 +610,6 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
           final compact = constraints.maxWidth < 700;
           final portA = _buildMiniPortConfig(
             label: '端口 A',
-            subtitle: 'USART3 / 20B / CRC16-Modbus',
             isConnected: controller.isConnectedA,
             ports: controller.portsA,
             selectedPort: controller.portAConfig.portName,
@@ -626,7 +625,6 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
           );
           final portB = _buildMiniPortConfig(
             label: '端口 B',
-            subtitle: 'USART1 / 日志+DBUS / CRC16-DBUS',
             isConnected: controller.isConnectedB,
             ports: controller.portsB,
             selectedPort: controller.portBConfig.portName,
@@ -659,7 +657,6 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
 
   Widget _buildMiniPortConfig({
     required String label,
-    required String subtitle,
     required bool isConnected,
     required List<String> ports,
     required String? selectedPort,
@@ -673,11 +670,14 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     required VoidCallback onConnect,
     required VoidCallback onDisconnect,
   }) {
-    return Row(
-      children: <Widget>[
-        // 标签+状态
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    return LayoutBuilder(
+      builder: (_, constraints) {
+        final veryCompact = constraints.maxWidth < 420;
+        final somewhatCompact = constraints.maxWidth < 580;
+
+        // ── 控件构建 ──
+        final labelWidget = Container(
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
           decoration: BoxDecoration(
             color: isConnected
                 ? const Color(0x1E1FDC9A)
@@ -690,106 +690,100 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
               color: isConnected
                   ? const Color(0xFF9AF9D3)
                   : const Color(0xFFFF9595),
-              fontSize: 11,
+              fontSize: 10,
               fontWeight: FontWeight.w700,
             ),
           ),
-        ),
-        const SizedBox(width: 8),
-        // 串口
-        Expanded(
-          child: DropdownButtonFormField<String>(
-            initialValue: selectedPort,
-            decoration: _miniInputDeco('串口'),
-            dropdownColor: const Color(0xFF122B4D),
-            style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
-            isDense: true,
-            items: ports
-                .map(
-                  (p) => DropdownMenuItem<String>(
-                    value: p,
-                    child: Text(p, style: const TextStyle(fontSize: 12)),
+        );
+
+        final portDropdown = DropdownButtonFormField<String>(
+          initialValue: selectedPort,
+          decoration: _miniInputDeco('串口'),
+          dropdownColor: const Color(0xFF122B4D),
+          style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 11),
+          isDense: true,
+          items: ports
+              .map(
+                (p) => DropdownMenuItem<String>(
+                  value: p,
+                  child: Text(
+                    p,
+                    style: const TextStyle(fontSize: 11),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                )
-                .toList(),
-            onChanged: canEdit ? onPortChanged : null,
-          ),
-        ),
-        const SizedBox(width: 6),
-        // 波特率
-        SizedBox(
-          width: 90,
-          child: DropdownButtonFormField<int>(
-            initialValue: baudRate,
-            decoration: _miniInputDeco('波特率'),
-            dropdownColor: const Color(0xFF122B4D),
-            style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
-            isDense: true,
-            items: const <int>[9600, 14400, 19200, 38400, 57600, 115200]
-                .map(
-                  (v) => DropdownMenuItem<int>(
-                    value: v,
-                    child: Text('$v', style: const TextStyle(fontSize: 12)),
+                ),
+              )
+              .toList(),
+          onChanged: canEdit ? onPortChanged : null,
+        );
+
+        final baudDropdown = DropdownButtonFormField<int>(
+          initialValue: baudRate,
+          decoration: _miniInputDeco('波特率'),
+          dropdownColor: const Color(0xFF122B4D),
+          style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 11),
+          isDense: true,
+          items: const <int>[9600, 14400, 19200, 38400, 57600, 115200]
+              .map(
+                (v) => DropdownMenuItem<int>(
+                  value: v,
+                  child: Text('$v', style: const TextStyle(fontSize: 11)),
+                ),
+              )
+              .toList(),
+          onChanged: canEdit ? (v) => onBaudRateChanged(v ?? 9600) : null,
+        );
+
+        final crcDropdown = DropdownButtonFormField<CrcAlgorithm>(
+          initialValue: crcAlgorithm,
+          decoration: _miniInputDeco('CRC'),
+          dropdownColor: const Color(0xFF122B4D),
+          style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 11),
+          isDense: true,
+          items: CrcAlgorithm.values
+              .map(
+                (a) => DropdownMenuItem<CrcAlgorithm>(
+                  value: a,
+                  child: Text(
+                    a.displayName,
+                    style: const TextStyle(fontSize: 11),
                   ),
-                )
-                .toList(),
-            onChanged: canEdit ? (v) => onBaudRateChanged(v ?? 9600) : null,
-          ),
-        ),
-        const SizedBox(width: 6),
-        // CRC
-        SizedBox(
-          width: 120,
-          child: DropdownButtonFormField<CrcAlgorithm>(
-            initialValue: crcAlgorithm,
-            decoration: _miniInputDeco('CRC'),
-            dropdownColor: const Color(0xFF122B4D),
-            style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
-            isDense: true,
-            items: CrcAlgorithm.values
-                .map(
-                  (a) => DropdownMenuItem<CrcAlgorithm>(
-                    value: a,
-                    child: Text(
-                      a.displayName,
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                  ),
-                )
-                .toList(),
-            onChanged: canEdit
-                ? (CrcAlgorithm? v) => onCrcChanged(v ?? CrcAlgorithm.modbus)
-                : null,
-          ),
-        ),
-        const SizedBox(width: 6),
-        // 操作按钮
-        SizedBox(
-          height: 32,
+                ),
+              )
+              .toList(),
+          onChanged: canEdit
+              ? (CrcAlgorithm? v) => onCrcChanged(v ?? CrcAlgorithm.modbus)
+              : null,
+        );
+
+        final scanBtn = SizedBox(
+          height: 30,
+          width: 28,
           child: ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF1B91D8),
               foregroundColor: Colors.white,
               disabledBackgroundColor: const Color(0xFF445E78),
-              padding: const EdgeInsets.symmetric(horizontal: 10),
+              padding: EdgeInsets.zero,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(6),
               ),
             ),
             onPressed: onRefresh,
-            child: Text('扫', style: GoogleFonts.ibmPlexSans(fontSize: 12)),
+            child: Text('扫', style: GoogleFonts.ibmPlexSans(fontSize: 10)),
           ),
-        ),
-        const SizedBox(width: 4),
-        SizedBox(
-          height: 32,
+        );
+
+        final connBtn = SizedBox(
+          height: 30,
+          width: 28,
           child: ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: isConnected
                   ? const Color(0xFF9F2D2D)
                   : const Color(0xFF2E7D32),
               foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
+              padding: EdgeInsets.zero,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(6),
               ),
@@ -797,11 +791,81 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
             onPressed: isConnected ? onDisconnect : onConnect,
             child: Text(
               isConnected ? '断' : '连',
-              style: GoogleFonts.ibmPlexSans(fontSize: 12),
+              style: GoogleFonts.ibmPlexSans(fontSize: 10),
             ),
           ),
-        ),
-      ],
+        );
+
+        // ── 布局策略 ──
+        if (veryCompact) {
+          // 三行：标签+按钮 / 串口+波特率 / CRC
+          return Column(
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  labelWidget,
+                  const Spacer(),
+                  scanBtn,
+                  const SizedBox(width: 4),
+                  connBtn,
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: <Widget>[
+                  Expanded(flex: 3, child: portDropdown),
+                  const SizedBox(width: 4),
+                  SizedBox(width: 75, child: baudDropdown),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(children: <Widget>[Expanded(child: crcDropdown)]),
+            ],
+          );
+        } else if (somewhatCompact) {
+          // 两行：标签+串口+波特率 / CRC+按钮
+          return Column(
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  labelWidget,
+                  const SizedBox(width: 4),
+                  Expanded(flex: 3, child: portDropdown),
+                  const SizedBox(width: 4),
+                  SizedBox(width: 75, child: baudDropdown),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: <Widget>[
+                  Expanded(child: crcDropdown),
+                  const SizedBox(width: 4),
+                  scanBtn,
+                  const SizedBox(width: 3),
+                  connBtn,
+                ],
+              ),
+            ],
+          );
+        } else {
+          // 一行：标签 + 串口 + 波特率 + CRC + 按钮
+          return Row(
+            children: <Widget>[
+              labelWidget,
+              const SizedBox(width: 4),
+              Expanded(flex: 2, child: portDropdown),
+              const SizedBox(width: 4),
+              SizedBox(width: 80, child: baudDropdown),
+              const SizedBox(width: 4),
+              SizedBox(width: 100, child: crcDropdown),
+              const SizedBox(width: 4),
+              scanBtn,
+              const SizedBox(width: 3),
+              connBtn,
+            ],
+          );
+        }
+      },
     );
   }
 

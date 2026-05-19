@@ -1,5 +1,4 @@
 {
-    // ── Linux (Arch Linux / Wayland) ──
     "cmake.sourceDirectory": "${workspaceFolder}/linux",
     "dart.flutterSdkPath": "/usr/lib/flutter",
     "editor.formatOnSave": true,
@@ -7,12 +6,10 @@
     "cmake.configureOnOpen": false,
     "cmake.buildDirectory": "${workspaceFolder}/build",
     "dart.checkForSdkUpdates": false,
-    // ── Wayland 相关 ──
-    "terminal.integrated.env.linux": {
-        "WAYLAND_DISPLAY": "wayland-0",
-        "FLUTTER_DISABLE_GPU": ""
-    },
-    // ── Flutter 调试 ──
     "dart.debugExternalLibraries": false,
-    "dart.evaluationLogs": true
+    "dart.evaluationLogs": true,
+    "terminal.integrated.env.linux": {
+        "XCURSOR_THEME": "Adwaita",
+        "GDK_BACKEND": "wayland"
+    }
 }

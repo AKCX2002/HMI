@@ -24,14 +24,25 @@ class HmiHostApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'HMI Host',
       theme: ThemeData(
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: const Color(0xFF08152A),
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF1D423B),
-          brightness: Brightness.light,
+          brightness: Brightness.dark,
         ),
-        textTheme: GoogleFonts.ibmPlexSansTextTheme(),
+        textTheme: GoogleFonts.ibmPlexSansTextTheme(ThemeData.dark().textTheme),
         inputDecorationTheme: const InputDecorationTheme(
           filled: true,
-          fillColor: Color(0xFFF8F8F4),
+          fillColor: Color(0xFF0A1D36),
+          labelStyle: TextStyle(color: Color(0xFFA6C5EA)),
+          enabledBorder: OutlineInputBorder(
+            borderSide: BorderSide(color: Color(0xFF2A4F79)),
+            borderRadius: BorderRadius.all(Radius.circular(8)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderSide: BorderSide(color: Color(0xFF52B3FF)),
+            borderRadius: BorderRadius.all(Radius.circular(8)),
+          ),
         ),
       ),
       home: HmiDashboardPage(controller: controller),
