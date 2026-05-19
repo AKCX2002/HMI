@@ -247,6 +247,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
           return InkWell(
             onTap: () => setState(() => _menuIndex = i),
             borderRadius: BorderRadius.circular(8),
+            hoverColor: const Color(0x3314345A),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               decoration: BoxDecoration(
@@ -377,6 +378,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                       ),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(10),
+                        hoverColor: const Color(0x3314345A),
                         onTap: () => setState(() => _menuIndex = i),
                         child: Container(
                           height: 44,
@@ -765,42 +767,48 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
               : null,
         );
 
-        final scanBtn = SizedBox(
-          height: 30,
-          width: 28,
-          child: ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1B91D8),
-              foregroundColor: Colors.white,
-              disabledBackgroundColor: const Color(0xFF445E78),
-              padding: EdgeInsets.zero,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(6),
+        final scanBtn = Tooltip(
+          message: '扫描可用串口',
+          child: SizedBox(
+            height: 30,
+            width: 36,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1B91D8),
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: const Color(0xFF445E78),
+                padding: EdgeInsets.zero,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
               ),
+              onPressed: onRefresh,
+              child: Text('扫', style: GoogleFonts.ibmPlexSans(fontSize: 10)),
             ),
-            onPressed: onRefresh,
-            child: Text('扫', style: GoogleFonts.ibmPlexSans(fontSize: 10)),
           ),
         );
 
-        final connBtn = SizedBox(
-          height: 30,
-          width: 28,
-          child: ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: isConnected
-                  ? const Color(0xFF9F2D2D)
-                  : const Color(0xFF2E7D32),
-              foregroundColor: Colors.white,
-              padding: EdgeInsets.zero,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(6),
+        final connBtn = Tooltip(
+          message: isConnected ? '断开串口连接' : '连接串口',
+          child: SizedBox(
+            height: 30,
+            width: 36,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isConnected
+                    ? const Color(0xFF9F2D2D)
+                    : const Color(0xFF2E7D32),
+                foregroundColor: Colors.white,
+                padding: EdgeInsets.zero,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
               ),
-            ),
-            onPressed: isConnected ? onDisconnect : onConnect,
-            child: Text(
-              isConnected ? '断' : '连',
-              style: GoogleFonts.ibmPlexSans(fontSize: 10),
+              onPressed: isConnected ? onDisconnect : onConnect,
+              child: Text(
+                isConnected ? '断' : '连',
+                style: GoogleFonts.ibmPlexSans(fontSize: 10),
+              ),
             ),
           ),
         );
