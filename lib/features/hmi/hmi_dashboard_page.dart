@@ -1386,7 +1386,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                     .isEmpty
                 ? Center(
                     child: Text(
-                      '等待端口 B 日志数据...',
+                      '等待端口 B 日志数据\u2026',
                       style: GoogleFonts.ibmPlexSans(
                         color: const Color(0xFFA7C7EB),
                         fontSize: 12,
@@ -1418,6 +1418,31 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
         ],
       ),
     );
+  }
+
+
+  /// 清空日志前确认对话框。
+  Future<void> _confirmClearLogs(HmiController controller) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('确认清空'),
+        content: const Text('确定要清空所有协议日志吗？此操作不可撤销。'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('清空'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      controller.clearLogs();
+    }
   }
 
   /// DBUS 读取参数
@@ -1494,6 +1519,24 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
 
   /// DBUS 恢复默认值
   Future<void> _dbusLoadDefault(HmiController controller) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('确认恢复默认'),
+        content: const Text('确定要恢复打包机所有运行时参数为默认值吗？参数修改将丢失。'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('恢复'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final nodeAddr = _safeHex(_dbusNodeAddr.text, fallback: 0x20);
     final ok = await controller.sendParamLoad(nodeAddress: nodeAddr, action: 1);
     if (!mounted) return;
@@ -1540,7 +1583,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
               ),
               const SizedBox(width: 8),
               TextButton.icon(
-                onPressed: controller.clearLogs,
+                onPressed: () => _confirmClearLogs(controller),
                 icon: const Icon(
                   Icons.cleaning_services_outlined,
                   color: Color(0xFF8ED3FF),
@@ -1890,6 +1933,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
       width: 32,
       child: IconButton(
         icon: const Icon(Icons.refresh, size: 16),
+        tooltip: '读取参数当前值',
         color: const Color(0xFF5ED0FF),
         padding: EdgeInsets.zero,
         onPressed: () => _readParam(controller, nodeAddr, paramId),
@@ -1962,7 +2006,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   Future<void> _readAllParams(HmiController controller, int nodeAddr) async {
     setState(() {
       _paramsLoading = true;
-      _paramsStatus = '正在读取全部参数...';
+      _paramsStatus = '正在读取全部参数\u2026';
     });
     int count = 0;
     for (final p in kParamDefs) {
@@ -1977,7 +2021,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
       }
       // 每读 10 个更新一次 UI
       if (count % 10 == 0 && mounted) {
-        setState(() => _paramsStatus = '已读取 $count/${kParamDefs.length}...');
+        setState(() => _paramsStatus = '已读取 $count/${kParamDefs.length}\u2026');
       }
     }
     if (mounted) {
@@ -2002,6 +2046,27 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     int nodeAddr,
     int action,
   ) async {
+    // 恢复默认值需要确认
+    if (action == 1) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('确认恢复默认'),
+          content: const Text('确定要恢复打包机所有运行时参数为默认值吗？参数修改将丢失。'),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('恢复'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
     final ok = await controller.sendParamLoad(
       nodeAddress: nodeAddr,
       action: action,
@@ -2083,7 +2148,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
             _buildCardHeader(
               title: '协议日志',
               trailing: TextButton.icon(
-                onPressed: controller.clearLogs,
+                onPressed: () => _confirmClearLogs(controller),
                 icon: const Icon(
                   Icons.cleaning_services_outlined,
                   color: Color(0xFF8ED3FF),
@@ -2114,7 +2179,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                         ),
                       )
                     : ListView.builder(
-                        itemCount: controller.logs.length,
+                        itemCount: controller.logs.length > 200
+                            ? 200
+                            : controller.logs.length,
                         itemBuilder: (_, i) {
                           final item = controller.logs[i];
                           return Padding(
