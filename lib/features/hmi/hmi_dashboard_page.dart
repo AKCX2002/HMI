@@ -1405,7 +1405,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                               style: GoogleFonts.ibmPlexMono(
                                 color: e.direction == 'TX'
                                     ? const Color(0xFFFFE082)
-                                    : const Color(0xFF9FFFC9),
+                                    : e.direction == 'LOG'
+                                        ? const Color(0xFF90A4AE)
+                                        : const Color(0xFF9FFFC9),
                                 fontSize: 11,
                                 height: 1.3,
                               ),
@@ -1629,7 +1631,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                           style: GoogleFonts.ibmPlexMono(
                             color: item.direction == 'TX'
                                 ? const Color(0xFFFFE082)
-                                : const Color(0xFF9FFFC9),
+                                : item.direction == 'LOG'
+                                    ? const Color(0xFF90A4AE)
+                                    : const Color(0xFF9FFFC9),
                             fontSize: 11,
                             height: 1.3,
                           ),
@@ -2191,7 +2195,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                               style: GoogleFonts.ibmPlexMono(
                                 color: item.direction == 'TX'
                                     ? const Color(0xFFFFE082)
-                                    : const Color(0xFF9FFFC9),
+                                    : item.direction == 'LOG'
+                                        ? const Color(0xFF90A4AE)
+                                        : const Color(0xFF9FFFC9),
                                 fontSize: 12,
                                 height: 1.4,
                               ),

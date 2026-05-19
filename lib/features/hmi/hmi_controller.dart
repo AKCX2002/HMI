@@ -18,6 +18,7 @@ class HmiLogEntry {
     this.note,
     this.attempt,
     this.portLabel = '',
+    this.rawText,
   });
 
   final String direction;
@@ -28,8 +29,15 @@ class HmiLogEntry {
   final int? attempt;
   final String portLabel;
 
+  /// 端口 B 文本日志内容（非协议帧的 printf 日志行）。
+  final String? rawText;
+
   String get pretty {
     final port = portLabel.isNotEmpty ? ' [$portLabel]' : '';
+    // 文本日志行
+    if (rawText != null) {
+      return '${DateFormat('HH:mm:ss.SSS').format(timestamp)}$port [LOG] $rawText';
+    }
     final base =
         '${DateFormat('HH:mm:ss.SSS').format(timestamp)}$port [$direction] '
         'ADDR=0x${toHex2(frame.address)} FUNC=0x${toHex2(frame.function)} '
@@ -848,6 +856,10 @@ class HmiController extends ChangeNotifier {
 
   void _onIncomingBytes(Uint8List bytes, _PortChannel channel) {
     channel.rxBuffer.addAll(bytes);
+    // 端口 B (USART1) 混合流量：先提取 printf 文本日志，再解析协议帧
+    if (channel == _channelB) {
+      _extractTextLogs(channel);
+    }
     _consumeFrames(channel);
   }
 
@@ -938,6 +950,51 @@ class HmiController extends ChangeNotifier {
     );
     if (_logs.length > 800) {
       _logs.removeLast();
+    }
+  }
+
+  /// 追加文本日志条目（端口 B printf 调试输出）。
+  void _appendTextLog(String text, String portLabel) {
+    // 构造占位帧以满足 HmiLogEntry 非空约束
+    final placeholder = HmiFrame(address: 0, function: 0, data: const <int>[]);
+    _logs.insert(
+      0,
+      HmiLogEntry(
+        direction: 'LOG',
+        frame: placeholder,
+        timestamp: DateTime.now(),
+        decoded: const HmiDecodedFrame(title: '', summary: '', rawDataHex: ''),
+        portLabel: portLabel,
+        rawText: text,
+      ),
+    );
+    if (_logs.length > 800) {
+      _logs.removeLast();
+    }
+  }
+
+  /// 从端口 B 缓冲区提取 printf 文本日志行（以 \n 或 \r\n 结尾）。
+  /// 提取后文本字节从缓冲区移除，剩余字节继续走帧解析。
+  void _extractTextLogs(_PortChannel channel) {
+    final buf = channel.rxBuffer;
+    final portLabel = channel.config.label;
+    var newlineAt = buf.indexOf(0x0A); // \n
+    while (newlineAt >= 0) {
+      final end = (newlineAt > 0 && buf[newlineAt - 1] == 0x0D) // \r\n
+          ? newlineAt - 1
+          : newlineAt;
+      if (end > 0) {
+        final text = String.fromCharCodes(buf.sublist(0, end));
+        _appendTextLog(text, portLabel);
+      }
+      buf.removeRange(0, newlineAt + 1);
+      newlineAt = buf.indexOf(0x0A);
+    }
+    // 长行无换行保护：超过 512 字节且全部可打印 → 视为整行 flush
+    if (buf.length > 512 && buf.every((b) => b >= 0x20 && b < 0x7F || b == 0x0D)) {
+      final text = String.fromCharCodes(buf);
+      _appendTextLog(text, portLabel);
+      buf.clear();
     }
   }
 
