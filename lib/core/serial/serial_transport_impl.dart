@@ -22,7 +22,12 @@ class SerialTransportImpl implements SerialTransport {
     if (kIsWeb) {
       return const <String>[];
     }
-    return SerialPort.availablePorts;
+    try {
+      return SerialPort.availablePorts;
+    } catch (e) {
+      debugPrint('扫描串口失败: $e');
+      return const <String>[];
+    }
   }
 
   @override
@@ -52,9 +57,14 @@ class SerialTransportImpl implements SerialTransport {
     port.config = config;
 
     _reader = SerialPortReader(port);
-    _readerSubscription = _reader!.stream.listen((data) {
-      _incomingController.add(Uint8List.fromList(data));
-    });
+    _readerSubscription = _reader!.stream.listen(
+      (data) {
+        _incomingController.add(Uint8List.fromList(data));
+      },
+      onError: (Object error) {
+        debugPrint('串口读取错误: $error');
+      },
+    );
     _port = port;
   }
 

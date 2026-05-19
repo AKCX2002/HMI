@@ -95,8 +95,8 @@ class HmiController extends ChangeNotifier {
   /// - 处理字节流拆包与响应匹配
   HmiController(this._transportA, {SerialTransport? transportB})
     : _transportB = transportB ?? SerialTransportDummy(),
-      _portAConfig = HmiPortConfig(label: '端口 A（主控协议）'),
-      _portBConfig = HmiPortConfig(label: '端口 B（打包机直连）') {
+      _portAConfig = HmiPortConfig(baudRate: 9600, label: '端口 A（主控协议）'),
+      _portBConfig = HmiPortConfig(baudRate: 9600, crcAlgorithm: CrcAlgorithm.dbus, label: '端口 B（打包机直连）') {
     _channelA = _PortChannel(_transportA, () => _portAConfig);
     _channelB = _PortChannel(_transportB, () => _portBConfig);
     _subscriptionA = _transportA.incomingBytes.listen(
@@ -280,14 +280,26 @@ class HmiController extends ChangeNotifier {
 
   Future<void> disconnectPortA() async {
     await _transportA.disconnect();
+    _clearWaiters(_channelA);
     _statusMessage = '端口 A 已断开';
     notifyListeners();
   }
 
   Future<void> disconnectPortB() async {
     await _transportB.disconnect();
+    _clearWaiters(_channelB);
     _statusMessage = '端口 B 已断开';
     notifyListeners();
+  }
+
+  /// 清理通道中所有未完成的等待者，防止断开后内存泄漏。
+  void _clearWaiters(_PortChannel channel) {
+    for (final w in channel.waiters) {
+      if (!w.completer.isCompleted) {
+        w.completer.completeError(StateError('串口已断开'));
+      }
+    }
+    channel.waiters.clear();
   }
 
   /// 向后兼容：连接/断开端口 A。
@@ -340,7 +352,12 @@ class HmiController extends ChangeNotifier {
       crcAlgorithm: config.crcAlgorithm,
     );
 
-    await _txChain;
+    // 等待前一条命令完成（忽略前条错误，避免链断裂死锁）
+    try {
+      await _txChain;
+    } catch (_) {
+      // 前一条命令异常，继续执行当前命令
+    }
     _txChain = () async {
       for (var attempt = 1; attempt <= totalAttempts; attempt++) {
         final waiter = _createWaiter(channel, request.expectedFunctions);
@@ -835,6 +852,12 @@ class HmiController extends ChangeNotifier {
   }
 
   void _consumeFrames(_PortChannel channel) {
+    // 缓冲区溢出保护：噪声/错波特率时限制最大缓冲，防止 OOM
+    const maxBuffer = 4096;
+    if (channel.rxBuffer.length > maxBuffer) {
+      channel.rxBuffer.removeRange(0, channel.rxBuffer.length - maxBuffer);
+    }
+
     final crcAlgo = channel.config.crcAlgorithm;
     while (channel.rxBuffer.length >= HmiFrame.frameLength) {
       final start = channel.rxBuffer.indexWhere(
@@ -843,6 +866,7 @@ class HmiController extends ChangeNotifier {
             v == HmiFrame.appResponseAddress ||
             v == 0x00 ||
             v == 0x20 ||
+            v == 0xFA ||
             v == 0xFF,
       );
       if (start < 0) {
@@ -876,15 +900,16 @@ class HmiController extends ChangeNotifier {
     return waiter;
   }
 
+  /// 将收到的帧分发给第一个匹配功能码的等待者。
+  /// 一帧只分发给一个 waiter，避免并发请求互相吞没。
   void _dispatchWaiters(_PortChannel channel, HmiFrame frame) {
-    final matched = channel.waiters
-        .where((w) => w.expectedFunctions.contains(frame.function))
-        .toList();
-    for (final waiter in matched) {
-      if (!waiter.completer.isCompleted) {
-        waiter.completer.complete(frame);
-      }
-      channel.waiters.remove(waiter);
+    final index = channel.waiters.indexWhere(
+      (w) => w.expectedFunctions.contains(frame.function),
+    );
+    if (index < 0) return;
+    final waiter = channel.waiters.removeAt(index);
+    if (!waiter.completer.isCompleted) {
+      waiter.completer.complete(frame);
     }
   }
 

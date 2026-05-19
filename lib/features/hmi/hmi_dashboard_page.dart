@@ -60,7 +60,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   );
 
   final TextEditingController _packerNodeAddr = TextEditingController(
-    text: '20',
+    text: 'FA',
   );
 
   /// 参数配置页状态
