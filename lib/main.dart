@@ -8,7 +8,10 @@ import 'features/hmi/hmi_dashboard_page.dart';
 /// 应用入口。
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  final controller = HmiController(SerialTransportImpl());
+  final controller = HmiController(
+    SerialTransportImpl(),
+    transportB: SerialTransportImpl(),
+  );
   runApp(HmiHostApp(controller: controller));
 }
 

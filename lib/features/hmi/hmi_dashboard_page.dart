@@ -696,25 +696,34 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
           ),
         );
 
-        final portDropdown = DropdownButtonFormField<String>(
+        final portDropdown = DropdownButtonFormField<String?>(
           initialValue: selectedPort,
           decoration: _miniInputDeco('串口'),
           dropdownColor: const Color(0xFF122B4D),
           style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 11),
           isDense: true,
-          items: ports
-              .map(
-                (p) => DropdownMenuItem<String>(
-                  value: p,
-                  child: Text(
-                    p,
-                    style: const TextStyle(fontSize: 11),
-                    overflow: TextOverflow.ellipsis,
-                  ),
+          items: <DropdownMenuItem<String?>>[
+            // 关闭选项（清空串口选择）
+            const DropdownMenuItem<String?>(
+              value: null,
+              child: Text(
+                '— 关闭 —',
+                style: TextStyle(color: Color(0xFF888888), fontSize: 11),
+              ),
+            ),
+            // 可用串口列表
+            ...ports.map(
+              (p) => DropdownMenuItem<String?>(
+                value: p,
+                child: Text(
+                  p,
+                  style: const TextStyle(fontSize: 11),
+                  overflow: TextOverflow.ellipsis,
                 ),
-              )
-              .toList(),
-          onChanged: canEdit ? onPortChanged : null,
+              ),
+            ),
+          ],
+          onChanged: canEdit ? (v) => onPortChanged(v) : null,
         );
 
         final baudDropdown = DropdownButtonFormField<int>(
@@ -815,7 +824,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                 children: <Widget>[
                   Expanded(flex: 3, child: portDropdown),
                   const SizedBox(width: 4),
-                  SizedBox(width: 75, child: baudDropdown),
+                  Expanded(flex: 2, child: baudDropdown),
                 ],
               ),
               const SizedBox(height: 4),
@@ -832,7 +841,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                   const SizedBox(width: 4),
                   Expanded(flex: 3, child: portDropdown),
                   const SizedBox(width: 4),
-                  SizedBox(width: 75, child: baudDropdown),
+                  Expanded(flex: 2, child: baudDropdown),
                 ],
               ),
               const SizedBox(height: 4),
@@ -853,11 +862,11 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
             children: <Widget>[
               labelWidget,
               const SizedBox(width: 4),
-              Expanded(flex: 2, child: portDropdown),
+              Expanded(flex: 3, child: portDropdown),
               const SizedBox(width: 4),
-              SizedBox(width: 80, child: baudDropdown),
+              Expanded(flex: 2, child: baudDropdown),
               const SizedBox(width: 4),
-              SizedBox(width: 100, child: crcDropdown),
+              Expanded(flex: 2, child: crcDropdown),
               const SizedBox(width: 4),
               scanBtn,
               const SizedBox(width: 3),

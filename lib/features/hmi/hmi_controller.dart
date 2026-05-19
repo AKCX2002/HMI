@@ -200,10 +200,10 @@ class HmiController extends ChangeNotifier {
   Future<void> refreshPortsA() async {
     try {
       _portsA = await _transportA.availablePorts();
-      if (_portsA.isNotEmpty &&
-          (_portAConfig.portName == null ||
-              !_portsA.contains(_portAConfig.portName))) {
-        _portAConfig = _portAConfig.copyWith(portName: _portsA.first);
+      // 不再自动选中第一个端口。仅当之前选中的端口已不存在时清空选择。
+      if (_portAConfig.portName != null &&
+          !_portsA.contains(_portAConfig.portName)) {
+        _portAConfig = _portAConfig.copyWith(portName: null);
       }
       _statusMessage = _portsA.isEmpty ? '端口 A: 未发现串口设备' : '已刷新串口 A 列表';
     } catch (error) {
@@ -215,10 +215,10 @@ class HmiController extends ChangeNotifier {
   Future<void> refreshPortsB() async {
     try {
       _portsB = await _transportB.availablePorts();
-      if (_portsB.isNotEmpty &&
-          (_portBConfig.portName == null ||
-              !_portsB.contains(_portBConfig.portName))) {
-        _portBConfig = _portBConfig.copyWith(portName: _portsB.first);
+      // 不再自动选中第一个端口。仅当之前选中的端口已不存在时清空选择。
+      if (_portBConfig.portName != null &&
+          !_portsB.contains(_portBConfig.portName)) {
+        _portBConfig = _portBConfig.copyWith(portName: null);
       }
       _statusMessage = _portsB.isEmpty ? '端口 B: 未发现串口设备' : '已刷新串口 B 列表';
     } catch (error) {
@@ -228,7 +228,9 @@ class HmiController extends ChangeNotifier {
   }
 
   Future<void> refreshPorts() async {
-    await Future.wait(<Future<void>>[refreshPortsA(), refreshPortsB()]);
+    // 串行扫描，避免 libserialport 并发冲突（errno 11 EAGAIN）
+    await refreshPortsA();
+    await refreshPortsB();
   }
 
   Future<void> connectPortA() async {
