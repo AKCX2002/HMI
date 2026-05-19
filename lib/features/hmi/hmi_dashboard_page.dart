@@ -585,15 +585,13 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                   ],
                 );
               }
-              return IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    Expanded(child: _buildPortAPanel(controller)),
-                    const SizedBox(width: 12),
-                    Expanded(child: _buildPortBPanel(controller)),
-                  ],
-                ),
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Expanded(child: _buildPortAPanel(controller)),
+                  const SizedBox(width: 12),
+                  Expanded(child: _buildPortBPanel(controller)),
+                ],
               );
             },
           ),
@@ -1084,7 +1082,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                 '0x44 投料',
                 true,
                 () => _runCommand(
-                  () => controller.sendPackerTriggerDeliver(nodeAddress: nodeAddr),
+                  () => controller.sendPackerTriggerDeliver(
+                    nodeAddress: nodeAddr,
+                  ),
                   '投料触发',
                 ),
               ),
@@ -1111,7 +1111,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                 '0x47 打印',
                 true,
                 () => _runCommand(
-                  () => controller.sendPackerPrinterForward(nodeAddress: nodeAddr),
+                  () => controller.sendPackerPrinterForward(
+                    nodeAddress: nodeAddr,
+                  ),
                   '打印机透传',
                 ),
               ),
@@ -1296,7 +1298,11 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
           const SizedBox(height: 8),
           Row(
             children: <Widget>[
-              const Icon(Icons.info_outline, color: Color(0xFF5ED0FF), size: 16),
+              const Icon(
+                Icons.info_outline,
+                color: Color(0xFF5ED0FF),
+                size: 16,
+              ),
               const SizedBox(width: 6),
               Text(
                 'DGUS 系统信息 (VP 0x1000~0x1003)',
@@ -1307,7 +1313,11 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                 ),
               ),
               const Spacer(),
-              _miniBtn('读取状态', _sysInfoLoading == false, () => _dbusSysInfo(controller)),
+              _miniBtn(
+                '读取状态',
+                _sysInfoLoading == false,
+                () => _dbusSysInfo(controller),
+              ),
             ],
           ),
           const SizedBox(height: 6),
@@ -1321,13 +1331,35 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
               ),
               child: Row(
                 children: <Widget>[
-                  _sysInfoBadge('状态', '0x${toHex2(_sysInfoData![0])}', const Color(0xFF5ED0FF)),
+                  _sysInfoBadge(
+                    '状态',
+                    '0x${toHex2(_sysInfoData![0])}',
+                    const Color(0xFF5ED0FF),
+                  ),
                   const SizedBox(width: 12),
-                  _sysInfoBadge('运行', '${_sysInfoData![1]}', _sysInfoData![1] == 1 ? const Color(0xFFFFE082) : const Color(0xFF90A4AE)),
+                  _sysInfoBadge(
+                    '运行',
+                    '${_sysInfoData![1]}',
+                    _sysInfoData![1] == 1
+                        ? const Color(0xFFFFE082)
+                        : const Color(0xFF90A4AE),
+                  ),
                   const SizedBox(width: 12),
-                  _sysInfoBadge('自检', '${_sysInfoData![2]}', _sysInfoData![2] == 1 ? const Color(0xFF9FFFC9) : const Color(0xFFFFE082)),
+                  _sysInfoBadge(
+                    '自检',
+                    '${_sysInfoData![2]}',
+                    _sysInfoData![2] == 1
+                        ? const Color(0xFF9FFFC9)
+                        : const Color(0xFFFFE082),
+                  ),
                   const SizedBox(width: 12),
-                  _sysInfoBadge('报警', '0x${toHex2(_sysInfoData![3])}', _sysInfoData![3] != 0 ? const Color(0xFFFF6B6B) : const Color(0xFF90A4AE)),
+                  _sysInfoBadge(
+                    '报警',
+                    '0x${toHex2(_sysInfoData![3])}',
+                    _sysInfoData![3] != 0
+                        ? const Color(0xFFFF6B6B)
+                        : const Color(0xFF90A4AE),
+                  ),
                 ],
               ),
             ),
@@ -1371,49 +1403,48 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: const Color(0xFF2D4F7E)),
               ),
-            child:
-                controller.logs
-                    .where((e) => e.portLabel.contains('端口 B'))
-                    .isEmpty
-                ? Center(
-                    child: Text(
-                      '等待端口 B 日志数据\u2026',
-                      style: GoogleFonts.ibmPlexSans(
-                        color: const Color(0xFFA7C7EB),
-                        fontSize: 12,
+              child:
+                  controller.logs
+                      .where((e) => e.portLabel.contains('端口 B'))
+                      .isEmpty
+                  ? Center(
+                      child: Text(
+                        '等待端口 B 日志数据\u2026',
+                        style: GoogleFonts.ibmPlexSans(
+                          color: const Color(0xFFA7C7EB),
+                          fontSize: 12,
+                        ),
                       ),
-                    ),
-                  )
-                : ListView(
-                    children: controller.logs
-                        .where((e) => e.portLabel.contains('端口 B'))
-                        .take(15)
-                        .map(
-                          (e) => Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 2),
-                            child: Text(
-                              e.pretty,
-                              style: GoogleFonts.ibmPlexMono(
-                                color: e.direction == 'TX'
-                                    ? const Color(0xFFFFE082)
-                                    : e.direction == 'LOG'
-                                        ? const Color(0xFF90A4AE)
-                                        : const Color(0xFF9FFFC9),
-                                fontSize: 11,
-                                height: 1.3,
+                    )
+                  : ListView(
+                      children: controller.logs
+                          .where((e) => e.portLabel.contains('端口 B'))
+                          .take(15)
+                          .map(
+                            (e) => Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 2),
+                              child: Text(
+                                e.pretty,
+                                style: GoogleFonts.ibmPlexMono(
+                                  color: e.direction == 'TX'
+                                      ? const Color(0xFFFFE082)
+                                      : e.direction == 'LOG'
+                                      ? const Color(0xFF90A4AE)
+                                      : const Color(0xFF9FFFC9),
+                                  fontSize: 11,
+                                  height: 1.3,
+                                ),
                               ),
                             ),
-                          ),
-                        )
-                        .toList(),
-                  ),
-              ),
+                          )
+                          .toList(),
+                    ),
             ),
+          ),
         ],
       ),
     );
   }
-
 
   /// 清空日志前确认对话框。
   Future<void> _confirmClearLogs(HmiController controller) async {
@@ -1555,8 +1586,8 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
         _sysInfoStatus = running == 1
             ? '机器运行中 — DGUS 参数调节被门禁锁定'
             : bootDone == 1
-                ? '空闲停机 — DGUS 参数调节允许'
-                : '自检中 — DGUS 参数调节被门禁锁定';
+            ? '空闲停机 — DGUS 参数调节允许'
+            : '自检中 — DGUS 参数调节被门禁锁定';
       });
     } else {
       setState(() {
@@ -1622,7 +1653,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
           ),
           const SizedBox(height: 8),
           SizedBox(
-            height: (MediaQuery.of(context).size.height * 0.2).clamp(100, 350).toDouble(),
+            height: (MediaQuery.of(context).size.height * 0.2)
+                .clamp(100, 350)
+                .toDouble(),
             width: double.infinity,
             child: Container(
               padding: const EdgeInsets.all(8),
@@ -1632,38 +1665,38 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                 border: Border.all(color: const Color(0xFF2D4F7E)),
               ),
               child: controller.logs.isEmpty
-                ? Center(
-                    child: Text(
-                      '暂无日志 — 连接串口后操作将在此显示',
-                      style: GoogleFonts.ibmPlexSans(
-                        color: const Color(0xFFA7C7EB),
-                        fontSize: 12,
-                      ),
-                    ),
-                  )
-                : ListView.builder(
-                    itemCount: controller.logs.length > 30
-                        ? 30
-                        : controller.logs.length,
-                    itemBuilder: (_, i) {
-                      final item = controller.logs[i];
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 2),
-                        child: Text(
-                          item.pretty,
-                          style: GoogleFonts.ibmPlexMono(
-                            color: item.direction == 'TX'
-                                ? const Color(0xFFFFE082)
-                                : item.direction == 'LOG'
-                                    ? const Color(0xFF90A4AE)
-                                    : const Color(0xFF9FFFC9),
-                            fontSize: 11,
-                            height: 1.3,
-                          ),
+                  ? Center(
+                      child: Text(
+                        '暂无日志 — 连接串口后操作将在此显示',
+                        style: GoogleFonts.ibmPlexSans(
+                          color: const Color(0xFFA7C7EB),
+                          fontSize: 12,
                         ),
-                      );
-                    },
-                  ),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: controller.logs.length > 30
+                          ? 30
+                          : controller.logs.length,
+                      itemBuilder: (_, i) {
+                        final item = controller.logs[i];
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Text(
+                            item.pretty,
+                            style: GoogleFonts.ibmPlexMono(
+                              color: item.direction == 'TX'
+                                  ? const Color(0xFFFFE082)
+                                  : item.direction == 'LOG'
+                                  ? const Color(0xFF90A4AE)
+                                  : const Color(0xFF9FFFC9),
+                              fontSize: 11,
+                              height: 1.3,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
             ),
           ),
         ],
@@ -2087,8 +2120,10 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
       }
       // 每读 10 个更新一次 UI
       if ((count + errors) % 10 == 0 && mounted) {
-        setState(() => _paramsStatus =
-            '已读取 $count/${kParamDefs.length}\u2026 ($errors项失败)');
+        setState(
+          () => _paramsStatus =
+              '已读取 $count/${kParamDefs.length}\u2026 ($errors项失败)',
+        );
       }
     }
     if (mounted) {
@@ -2261,8 +2296,8 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                                 color: item.direction == 'TX'
                                     ? const Color(0xFFFFE082)
                                     : item.direction == 'LOG'
-                                        ? const Color(0xFF90A4AE)
-                                        : const Color(0xFF9FFFC9),
+                                    ? const Color(0xFF90A4AE)
+                                    : const Color(0xFF9FFFC9),
                                 fontSize: 12,
                                 height: 1.4,
                               ),
