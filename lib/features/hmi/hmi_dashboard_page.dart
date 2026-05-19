@@ -585,13 +585,15 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                   ],
                 );
               }
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Expanded(child: _buildPortAPanel(controller)),
-                  const SizedBox(width: 12),
-                  Expanded(child: _buildPortBPanel(controller)),
-                ],
+              return IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    Expanded(child: _buildPortAPanel(controller)),
+                    const SizedBox(width: 12),
+                    Expanded(child: _buildPortBPanel(controller)),
+                  ],
+                ),
               );
             },
           ),
@@ -1361,15 +1363,14 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
             ],
           ),
           const SizedBox(height: 6),
-          Container(
-            height: 120,
-            width: double.infinity,
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF0B1E3A),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFF2D4F7E)),
-            ),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0B1E3A),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFF2D4F7E)),
+              ),
             child:
                 controller.logs
                     .where((e) => e.portLabel.contains('端口 B'))
@@ -1406,7 +1407,8 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                         )
                         .toList(),
                   ),
-          ),
+              ),
+            ),
         ],
       ),
     );
@@ -1619,16 +1621,17 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
             ],
           ),
           const SizedBox(height: 8),
-          Container(
-            height: 150,
+          SizedBox(
+            height: (MediaQuery.of(context).size.height * 0.2).clamp(100, 350).toDouble(),
             width: double.infinity,
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF08152A),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFF2D4F7E)),
-            ),
-            child: controller.logs.isEmpty
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF08152A),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFF2D4F7E)),
+              ),
+              child: controller.logs.isEmpty
                 ? Center(
                     child: Text(
                       '暂无日志 — 连接串口后操作将在此显示',
@@ -1661,6 +1664,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                       );
                     },
                   ),
+            ),
           ),
         ],
       ),

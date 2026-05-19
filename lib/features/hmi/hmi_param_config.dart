@@ -1,22 +1,11 @@
-library hmi_param_config;
-
-/// 运行时参数定义表 —— 与固件 `app_runtime_config_defaults.h` 完全对齐。
-///
-/// 每个参数包含:
-/// - [id]: 参数 ID (对应固件 `RCFG_ID_*` 枚举值)
-/// - [name]: 中文名称
-/// - [unit]: 单位
-/// - [min]/[max]: 取值范围（源自固件 Doxygen 注释范围）
-/// - [dgusAddr]: DGUS 变量地址，公式 `0x2000 + (id - 0x10) * 2`
-/// - [group]: 分组标签
-///
-/// DGUS 地址公式:
-/// ```
-/// addr = 0x2000 + (param_id - 0x10) * 2
-/// ```
-///
-/// 参数 ID 连续编址（含预留间隙），用于运行时 `sendParamRead`/`sendParamWrite`
-/// 走 hmi_controller 中的公式计算。本表 `dgusAddr` 供显示/调试时参考。
+// 运行时参数定义表 —— 与固件 `app_runtime_config_defaults.h` 完全对齐。
+// 每个参数包含:
+// - id: 参数 ID (对应固件 `RCFG_ID_*` 枚举值)
+// - name: 中文名称
+// - unit: 单位
+// - min/max: 取值范围（源自固件 Doxygen 注释范围）
+// - dgusAddr: DGUS 变量地址，公式 `0x2000 + (id - 0x10) * 2`
+// - group: 分组标签
 
 class HmiParamDef {
   const HmiParamDef({
