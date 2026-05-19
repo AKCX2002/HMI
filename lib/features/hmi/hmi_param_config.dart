@@ -1,12 +1,22 @@
-/// 运行时参数定义 —— 与下位机 app_runtime_config_defaults.h 完全对齐。
+library hmi_param_config;
+
+/// 运行时参数定义表 —— 与固件 `app_runtime_config_defaults.h` 完全对齐。
 ///
 /// 每个参数包含:
-/// - [id]: 参数 ID (对应协议 Y1 字段)
+/// - [id]: 参数 ID (对应固件 `RCFG_ID_*` 枚举值)
 /// - [name]: 中文名称
 /// - [unit]: 单位
-/// - [min]/[max]: 取值范围
-/// - [dgusAddr]: DGUS 屏幕变量地址
+/// - [min]/[max]: 取值范围（源自固件 Doxygen 注释范围）
+/// - [dgusAddr]: DGUS 变量地址，公式 `0x2000 + (id - 0x10) * 2`
 /// - [group]: 分组标签
+///
+/// DGUS 地址公式:
+/// ```
+/// addr = 0x2000 + (param_id - 0x10) * 2
+/// ```
+///
+/// 参数 ID 连续编址（含预留间隙），用于运行时 `sendParamRead`/`sendParamWrite`
+/// 走 hmi_controller 中的公式计算。本表 `dgusAddr` 供显示/调试时参考。
 
 class HmiParamDef {
   const HmiParamDef({
@@ -28,24 +38,12 @@ class HmiParamDef {
   final String group;
 }
 
-/// 参数分组枚举
-enum HmiParamGroup {
-  stepper('步进运动参数'),
-  timing('流程延时/超时'),
-  bagMech('出袋机械尺寸'),
-  pressMech('压杆机械尺寸'),
-  heaterPrinter('加热/打印机'),
-  led('LED 闪烁'),
-  monitor('监控/看门狗'),
-  selfCheck('自检开关');
-
-  const HmiParamGroup(this.label);
-  final String label;
-}
-
-/// 全部运行时参数定义表 (53 个参数, 与固件 packer_runtime_config 一一对应)
+/// 全部运行时参数定义表 (与固件 `packer_runtime_config_id_t` 一一对应)
 const List<HmiParamDef> kParamDefs = <HmiParamDef>[
-  // ── 步进运动参数 (0x10~0x16) ──
+
+  // ══════════════════════════════════════════════════════════════════
+  //  步进运动参数 (ID 0x10~0x16, DGUS 0x2000~0x200C)
+  // ══════════════════════════════════════════════════════════════════
   HmiParamDef(
     id: 0x10,
     name: '出袋轴频率',
@@ -110,14 +108,16 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     group: '步进运动参数',
   ),
 
-  // ── 流程延时/超时 (0x20~0x33) ──
+  // ══════════════════════════════════════════════════════════════════
+  //  流程延时/超时 (ID 0x20~0x33, DGUS 0x2020~0x2046)
+  // ══════════════════════════════════════════════════════════════════
   HmiParamDef(
     id: 0x20,
     name: '上电稳定延时',
     unit: 'ms',
     min: 0,
     max: 60000,
-    dgusAddr: 0x2010,
+    dgusAddr: 0x2020,
     group: '流程延时/超时',
   ),
   HmiParamDef(
@@ -126,7 +126,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'ms',
     min: 0,
     max: 60000,
-    dgusAddr: 0x2012,
+    dgusAddr: 0x2022,
     group: '流程延时/超时',
   ),
   HmiParamDef(
@@ -135,7 +135,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'ms',
     min: 0,
     max: 60000,
-    dgusAddr: 0x2014,
+    dgusAddr: 0x2024,
     group: '流程延时/超时',
   ),
   HmiParamDef(
@@ -144,7 +144,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'ms',
     min: 100,
     max: 60000,
-    dgusAddr: 0x2016,
+    dgusAddr: 0x2026,
     group: '流程延时/超时',
   ),
   HmiParamDef(
@@ -153,7 +153,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'ms',
     min: 100,
     max: 60000,
-    dgusAddr: 0x2018,
+    dgusAddr: 0x2028,
     group: '流程延时/超时',
   ),
   HmiParamDef(
@@ -162,7 +162,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'ms',
     min: 0,
     max: 60000,
-    dgusAddr: 0x201A,
+    dgusAddr: 0x202A,
     group: '流程延时/超时',
   ),
   HmiParamDef(
@@ -171,7 +171,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'ms',
     min: 0,
     max: 60000,
-    dgusAddr: 0x201C,
+    dgusAddr: 0x202C,
     group: '流程延时/超时',
   ),
   HmiParamDef(
@@ -180,7 +180,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'ms',
     min: 0,
     max: 60000,
-    dgusAddr: 0x2020,
+    dgusAddr: 0x202E,
     group: '流程延时/超时',
   ),
   HmiParamDef(
@@ -189,7 +189,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'ms',
     min: 10,
     max: 60000,
-    dgusAddr: 0x2022,
+    dgusAddr: 0x2030,
     group: '流程延时/超时',
   ),
   HmiParamDef(
@@ -198,7 +198,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'ms',
     min: 10,
     max: 30000,
-    dgusAddr: 0x2024,
+    dgusAddr: 0x2032,
     group: '流程延时/超时',
   ),
   HmiParamDef(
@@ -207,7 +207,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'ms',
     min: 100,
     max: 60000,
-    dgusAddr: 0x2026,
+    dgusAddr: 0x2034,
     group: '流程延时/超时',
   ),
   HmiParamDef(
@@ -216,7 +216,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'ms',
     min: 0,
     max: 60000,
-    dgusAddr: 0x2028,
+    dgusAddr: 0x2036,
     group: '流程延时/超时',
   ),
   HmiParamDef(
@@ -225,7 +225,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'ms',
     min: 0,
     max: 60000,
-    dgusAddr: 0x202A,
+    dgusAddr: 0x2038,
     group: '流程延时/超时',
   ),
   HmiParamDef(
@@ -234,7 +234,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'ms',
     min: 0,
     max: 60000,
-    dgusAddr: 0x202C,
+    dgusAddr: 0x203A,
     group: '流程延时/超时',
   ),
   HmiParamDef(
@@ -243,7 +243,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'ms',
     min: 0,
     max: 60000,
-    dgusAddr: 0x202E,
+    dgusAddr: 0x203C,
     group: '流程延时/超时',
   ),
   HmiParamDef(
@@ -252,7 +252,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'ms',
     min: 0,
     max: 60000,
-    dgusAddr: 0x2030,
+    dgusAddr: 0x203E,
     group: '流程延时/超时',
   ),
   HmiParamDef(
@@ -261,7 +261,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'ms',
     min: 0,
     max: 60000,
-    dgusAddr: 0x2032,
+    dgusAddr: 0x2040,
     group: '流程延时/超时',
   ),
   HmiParamDef(
@@ -270,7 +270,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'ms',
     min: 0,
     max: 1000,
-    dgusAddr: 0x2034,
+    dgusAddr: 0x2042,
     group: '流程延时/超时',
   ),
   HmiParamDef(
@@ -279,7 +279,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'ms',
     min: 0,
     max: 60000,
-    dgusAddr: 0x2036,
+    dgusAddr: 0x2044,
     group: '流程延时/超时',
   ),
   HmiParamDef(
@@ -288,18 +288,20 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'ms',
     min: 0,
     max: 60000,
-    dgusAddr: 0x2038,
+    dgusAddr: 0x2046,
     group: '流程延时/超时',
   ),
 
-  // ── 出袋机械尺寸 (0x40~0x47) ──
+  // ══════════════════════════════════════════════════════════════════
+  //  出袋机械尺寸 (ID 0x40~0x47, DGUS 0x2060~0x206E)
+  // ══════════════════════════════════════════════════════════════════
   HmiParamDef(
     id: 0x40,
     name: '出袋电机脉冲/圈',
     unit: 'PUL',
     min: 200,
     max: 100000,
-    dgusAddr: 0x2040,
+    dgusAddr: 0x2060,
     group: '出袋机械尺寸',
   ),
   HmiParamDef(
@@ -308,7 +310,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: '0.001mm',
     min: 1000,
     max: 200000,
-    dgusAddr: 0x2042,
+    dgusAddr: 0x2062,
     group: '出袋机械尺寸',
   ),
   HmiParamDef(
@@ -317,7 +319,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'T',
     min: 1,
     max: 200,
-    dgusAddr: 0x2044,
+    dgusAddr: 0x2064,
     group: '出袋机械尺寸',
   ),
   HmiParamDef(
@@ -326,7 +328,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'T',
     min: 1,
     max: 200,
-    dgusAddr: 0x2046,
+    dgusAddr: 0x2066,
     group: '出袋机械尺寸',
   ),
   HmiParamDef(
@@ -335,7 +337,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: '0.001mm',
     min: 0,
     max: 1000000,
-    dgusAddr: 0x2048,
+    dgusAddr: 0x2068,
     group: '出袋机械尺寸',
   ),
   HmiParamDef(
@@ -344,7 +346,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: '0.001mm',
     min: 1000,
     max: 2000000,
-    dgusAddr: 0x204A,
+    dgusAddr: 0x206A,
     group: '出袋机械尺寸',
   ),
   HmiParamDef(
@@ -353,7 +355,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: '0.001mm/s',
     min: 1000,
     max: 500000,
-    dgusAddr: 0x204C,
+    dgusAddr: 0x206C,
     group: '出袋机械尺寸',
   ),
   HmiParamDef(
@@ -362,18 +364,20 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: '0.001mm/s',
     min: 1000,
     max: 500000,
-    dgusAddr: 0x204E,
+    dgusAddr: 0x206E,
     group: '出袋机械尺寸',
   ),
 
-  // ── 压杆机械尺寸 (0x48~0x4C) ──
+  // ══════════════════════════════════════════════════════════════════
+  //  压杆机械尺寸 (ID 0x48~0x4D, DGUS 0x2070~0x207A)
+  // ══════════════════════════════════════════════════════════════════
   HmiParamDef(
     id: 0x48,
     name: '压杆电机脉冲/圈',
     unit: 'PUL',
     min: 200,
     max: 100000,
-    dgusAddr: 0x2050,
+    dgusAddr: 0x2070,
     group: '压杆机械尺寸',
   ),
   HmiParamDef(
@@ -382,7 +386,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'T',
     min: 1,
     max: 200,
-    dgusAddr: 0x2052,
+    dgusAddr: 0x2072,
     group: '压杆机械尺寸',
   ),
   HmiParamDef(
@@ -391,7 +395,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'T',
     min: 1,
     max: 200,
-    dgusAddr: 0x2054,
+    dgusAddr: 0x2074,
     group: '压杆机械尺寸',
   ),
   HmiParamDef(
@@ -400,27 +404,38 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: '0.001mm',
     min: 1000,
     max: 200000,
-    dgusAddr: 0x2056,
+    dgusAddr: 0x2076,
     group: '压杆机械尺寸',
   ),
   HmiParamDef(
     id: 0x4C,
-    name: '压杆回拉目标位移',
+    name: '压杆回IN1脉冲保护位移',
     unit: '0.001mm',
     min: 1000,
     max: 1000000,
-    dgusAddr: 0x2058,
+    dgusAddr: 0x2078,
+    group: '压杆机械尺寸',
+  ),
+  HmiParamDef(
+    id: 0x4D,
+    name: '压杆下压目标位移',
+    unit: '0.001mm',
+    min: 1000,
+    max: 1000000,
+    dgusAddr: 0x207A,
     group: '压杆机械尺寸',
   ),
 
-  // ── 加热/打印机 (0x50~0x53) ──
+  // ══════════════════════════════════════════════════════════════════
+  //  加热/打印机 (ID 0x50~0x53, DGUS 0x2080~0x2086)
+  // ══════════════════════════════════════════════════════════════════
   HmiParamDef(
     id: 0x50,
     name: '加热翻转周期',
     unit: 'ms',
     min: 100,
     max: 10000,
-    dgusAddr: 0x2060,
+    dgusAddr: 0x2080,
     group: '加热/打印机',
   ),
   HmiParamDef(
@@ -429,7 +444,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: '',
     min: 0,
     max: 1,
-    dgusAddr: 0x2062,
+    dgusAddr: 0x2082,
     group: '加热/打印机',
   ),
   HmiParamDef(
@@ -438,7 +453,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: '0.001mm',
     min: 0,
     max: 1000000,
-    dgusAddr: 0x2064,
+    dgusAddr: 0x2084,
     group: '加热/打印机',
   ),
   HmiParamDef(
@@ -447,74 +462,159 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'ms',
     min: 1,
     max: 1000,
-    dgusAddr: 0x2066,
+    dgusAddr: 0x2086,
     group: '加热/打印机',
   ),
 
-  // ── LED 闪烁周期 (0x60~0x65) ──
+  // ══════════════════════════════════════════════════════════════════
+  //  功率采样/限制预留 (ID 0x54~0x62, DGUS 0x2088~0x20A4)
+  // ══════════════════════════════════════════════════════════════════
+  HmiParamDef(
+    id: 0x54,
+    name: '功率估算母线电压',
+    unit: 'mV',
+    min: 0,
+    max: 50000,
+    dgusAddr: 0x2088,
+    group: '功率限制',
+  ),
+  HmiParamDef(
+    id: 0x55,
+    name: '功率限制开关',
+    unit: '',
+    min: 0,
+    max: 1,
+    dgusAddr: 0x208A,
+    group: '功率限制',
+  ),
+  HmiParamDef(
+    id: 0x56,
+    name: '总功率上限',
+    unit: 'mW',
+    min: 0,
+    max: 500000000,
+    dgusAddr: 0x208C,
+    group: '功率限制',
+  ),
+  HmiParamDef(
+    id: 0x57,
+    name: '功率限制释放阈值',
+    unit: 'mW',
+    min: 0,
+    max: 500000000,
+    dgusAddr: 0x208E,
+    group: '功率限制',
+  ),
+  HmiParamDef(
+    id: 0x58,
+    name: '滤波窗口长度',
+    unit: '',
+    min: 1,
+    max: 64,
+    dgusAddr: 0x2090,
+    group: '功率限制',
+  ),
+  HmiParamDef(
+    id: 0x59,
+    name: '电机1画像功率',
+    unit: 'mW',
+    min: 0,
+    max: 500000,
+    dgusAddr: 0x2092,
+    group: '功率限制',
+  ),
+  HmiParamDef(
+    id: 0x5A,
+    name: '电机2画像功率',
+    unit: 'mW',
+    min: 0,
+    max: 500000,
+    dgusAddr: 0x2094,
+    group: '功率限制',
+  ),
+  HmiParamDef(
+    id: 0x5B,
+    name: '加热画像功率',
+    unit: 'mW',
+    min: 0,
+    max: 500000,
+    dgusAddr: 0x2096,
+    group: '功率限制',
+  ),
+  HmiParamDef(
+    id: 0x5C,
+    name: '风机画像功率',
+    unit: 'mW',
+    min: 0,
+    max: 500000,
+    dgusAddr: 0x2098,
+    group: '功率限制',
+  ),
+  HmiParamDef(
+    id: 0x5D,
+    name: '传送带画像功率',
+    unit: 'mW',
+    min: 0,
+    max: 500000,
+    dgusAddr: 0x209A,
+    group: '功率限制',
+  ),
+  HmiParamDef(
+    id: 0x5E,
+    name: '预留继电器画像功率',
+    unit: 'mW',
+    min: 0,
+    max: 500000,
+    dgusAddr: 0x209C,
+    group: '功率限制',
+  ),
+  HmiParamDef(
+    id: 0x5F,
+    name: '出袋动态限位',
+    unit: 'mW',
+    min: 0,
+    max: 500000000,
+    dgusAddr: 0x209E,
+    group: '功率限制',
+  ),
   HmiParamDef(
     id: 0x60,
-    name: '上电/自检LED闪烁',
-    unit: 'ms',
-    min: 10,
-    max: 5000,
-    dgusAddr: 0x2080,
-    group: 'LED 闪烁',
+    name: '封口动态限位',
+    unit: 'mW',
+    min: 0,
+    max: 500000000,
+    dgusAddr: 0x20A0,
+    group: '功率限制',
   ),
   HmiParamDef(
     id: 0x61,
-    name: '空闲LED闪烁',
-    unit: 'ms',
-    min: 10,
-    max: 5000,
-    dgusAddr: 0x2082,
-    group: 'LED 闪烁',
+    name: '复位动态限位',
+    unit: 'mW',
+    min: 0,
+    max: 500000000,
+    dgusAddr: 0x20A2,
+    group: '功率限制',
   ),
   HmiParamDef(
     id: 0x62,
-    name: '校准LED闪烁',
-    unit: 'ms',
-    min: 10,
-    max: 5000,
-    dgusAddr: 0x2084,
-    group: 'LED 闪烁',
-  ),
-  HmiParamDef(
-    id: 0x63,
-    name: '执行LED闪烁',
-    unit: 'ms',
-    min: 10,
-    max: 5000,
-    dgusAddr: 0x2086,
-    group: 'LED 闪烁',
-  ),
-  HmiParamDef(
-    id: 0x64,
-    name: '封口保持LED闪烁',
-    unit: 'ms',
-    min: 10,
-    max: 5000,
-    dgusAddr: 0x2088,
-    group: 'LED 闪烁',
-  ),
-  HmiParamDef(
-    id: 0x65,
-    name: '故障LED闪烁',
-    unit: 'ms',
-    min: 10,
-    max: 5000,
-    dgusAddr: 0x208A,
-    group: 'LED 闪烁',
+    name: '自检动态限位',
+    unit: 'mW',
+    min: 0,
+    max: 500000000,
+    dgusAddr: 0x20A4,
+    group: '功率限制',
   ),
 
-  // ── 监控/看门狗 (0x70~0x72) ──
+  // ══════════════════════════════════════════════════════════════════
+  //  监控/看门狗 (ID 0x70~0x72, DGUS 0x20C0~0x20C4)
+  // ══════════════════════════════════════════════════════════════════
   HmiParamDef(
     id: 0x70,
     name: '喂狗周期',
     unit: 'ms',
     min: 10,
     max: 10000,
-    dgusAddr: 0x20A0,
+    dgusAddr: 0x20C0,
     group: '监控/看门狗',
   ),
   HmiParamDef(
@@ -523,7 +623,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'ms',
     min: 1000,
     max: 3600000,
-    dgusAddr: 0x20A2,
+    dgusAddr: 0x20C2,
     group: '监控/看门狗',
   ),
   HmiParamDef(
@@ -532,18 +632,20 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: 'ms',
     min: 1000,
     max: 3600000,
-    dgusAddr: 0x20A4,
+    dgusAddr: 0x20C4,
     group: '监控/看门狗',
   ),
 
-  // ── 自检开关 (0x80~0x82) ──
+  // ══════════════════════════════════════════════════════════════════
+  //  自检/打印机旁路/挡板时序 (ID 0x80~0x85, DGUS 0x20E0~0x20EA)
+  // ══════════════════════════════════════════════════════════════════
   HmiParamDef(
     id: 0x80,
     name: '上电袋口校准开关',
     unit: '',
     min: 0,
     max: 1,
-    dgusAddr: 0x20C0,
+    dgusAddr: 0x20E0,
     group: '自检开关',
   ),
   HmiParamDef(
@@ -552,7 +654,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: '',
     min: 0,
     max: 1,
-    dgusAddr: 0x20C2,
+    dgusAddr: 0x20E2,
     group: '自检开关',
   ),
   HmiParamDef(
@@ -561,8 +663,35 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     unit: '',
     min: 0,
     max: 1,
-    dgusAddr: 0x20C4,
+    dgusAddr: 0x20E4,
     group: '自检开关',
+  ),
+  HmiParamDef(
+    id: 0x83,
+    name: '挡板全程时间',
+    unit: 'ms',
+    min: 0,
+    max: 60000,
+    dgusAddr: 0x20E6,
+    group: '挡板时序',
+  ),
+  HmiParamDef(
+    id: 0x84,
+    name: '挡板预张开时间',
+    unit: 'ms',
+    min: 0,
+    max: 60000,
+    dgusAddr: 0x20E8,
+    group: '挡板时序',
+  ),
+  HmiParamDef(
+    id: 0x85,
+    name: '挡板归位补偿时间',
+    unit: 'ms',
+    min: 0,
+    max: 60000,
+    dgusAddr: 0x20EA,
+    group: '挡板时序',
   ),
 ];
 

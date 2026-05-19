@@ -1,6 +1,6 @@
 /// CRC16 算法枚举。
 ///
-/// 支持可配置的 CRC16 算法，当前包含 Modbus 和 DBUS 两种变体。
+/// 支持可配置的 CRC16 算法，当前包含 Modbus 和 DGUS 常用变体。
 /// 后续可按需扩展多项式与参数。
 enum CrcAlgorithm {
   /// CRC16-Modbus
@@ -12,14 +12,14 @@ enum CrcAlgorithm {
   /// - 结果异或：`0x0000`
   modbus(0xA001, 0xFFFF, 0x0000),
 
-  /// CRC16-DBUS（CRC-16/IBM 变体）
+  /// CRC16-DGUS（CRC-16/IBM 变体）
   ///
   /// - 多项式：`0x8005`（反转 `0xA001`）
   /// - 初始值：`0x0000`
   /// - 输入反转：是
   /// - 输出反转：是
   /// - 结果异或：`0x0000`
-  dbus(0xA001, 0x0000, 0x0000);
+  dgus(0xA001, 0x0000, 0x0000);
 
   const CrcAlgorithm(this.polyReflected, this.init, this.xorOut);
 
@@ -53,12 +53,12 @@ enum CrcAlgorithm {
 
   /// 从字符串名称解析算法枚举。
   ///
-  /// 不区分大小写，支持 `"modbus"`、`"dbus"`。
+  /// 不区分大小写，支持 `"modbus"`、`"dgus"`。
   /// 无法解析时返回 `null`。
   static CrcAlgorithm? tryParse(String name) {
     return switch (name.trim().toLowerCase()) {
       'modbus' => CrcAlgorithm.modbus,
-      'dbus' => CrcAlgorithm.dbus,
+      'dgus' => CrcAlgorithm.dgus,
       _ => null,
     };
   }
@@ -67,7 +67,7 @@ enum CrcAlgorithm {
   String get displayName {
     return switch (this) {
       CrcAlgorithm.modbus => 'CRC16-Modbus',
-      CrcAlgorithm.dbus => 'CRC16-DBUS',
+      CrcAlgorithm.dgus => 'CRC16-DGUS',
     };
   }
 }

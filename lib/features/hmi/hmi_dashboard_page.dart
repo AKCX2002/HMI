@@ -96,12 +96,17 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     text: '09,0A',
   );
 
-  /// DBUS 调节面板状态
+  /// DGUS 调节面板状态
   final TextEditingController _dbusParamId = TextEditingController(text: '10');
   final TextEditingController _dbusValue = TextEditingController(text: '0');
-  final TextEditingController _dbusNodeAddr = TextEditingController(text: '20');
+  final TextEditingController _dbusNodeAddr = TextEditingController(text: 'FA');
   String _dbusStatus = '';
   int? _dbusReadResult;
+
+  /// DGUS 系统信息
+  List<int>? _sysInfoData;
+  String _sysInfoStatus = '';
+  bool _sysInfoLoading = false;
 
   @override
   void initState() {
@@ -450,7 +455,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                '右协议: USART1 / DBUS',
+                                '右协议: USART1 / DGUS(5A A5)',
                                 style: GoogleFonts.ibmPlexMono(
                                   color: const Color(0xFF9EC7FF),
                                   fontSize: 10,
@@ -902,7 +907,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
 
   /// ── 端口 A 面板：左协议 (USART3 / 20B 主控协议) ──
   Widget _buildPortAPanel(HmiController controller) {
-    final nodeAddr = _safeHex(_packerNodeAddr.text, fallback: 0x20);
+    final nodeAddr = _safeHex(_packerNodeAddr.text, fallback: 0xFA);
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -933,106 +938,14 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
             ],
           ),
           const SizedBox(height: 12),
-          // ── 主控功能码 ──
+          // ── 协议收敛说明 ──
           Text(
-            '上位主机命令 (0x01 / 0x03 / 0x05 / 0x07 / 0x09 / 0x0B / 0x0C / 0x10)',
+            '已收敛为打包机现行协议(0x40~0x4C)，旧业务协议入口已移除',
             style: GoogleFonts.ibmPlexSans(
               color: const Color(0xFFA6C5EA),
               fontSize: 11,
               fontWeight: FontWeight.w500,
             ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: <Widget>[
-              _miniBtn(
-                '0x10 初始化',
-                controller.isConnectedA || controller.isConnectedB,
-                () => _runCommand(controller.sendInitQuery, '初始化查询完成'),
-              ),
-              _miniBtn(
-                '0x09 状态',
-                controller.isConnectedA || controller.isConnectedB,
-                () => _runCommand(
-                  () => controller.sendStatusQuery(
-                    queryType: _safeInt(_statusQueryType, fallback: 1),
-                  ),
-                  '状态查询完成',
-                ),
-              ),
-              _miniBtn(
-                '0x01 订单',
-                controller.isConnectedA || controller.isConnectedB,
-                () => _runCommand(
-                  () => controller.sendOrder(
-                    orderId: _safeInt(_orderId, fallback: 1),
-                    quantity: _safeInt(_quantity, fallback: 1),
-                    cabinetAddress: _safeInt(_cabinetAddress, fallback: 1),
-                    layer: _safeInt(_layer, fallback: 1),
-                    lane: _safeInt(_lane, fallback: 1),
-                  ),
-                  '订单下发完成',
-                ),
-              ),
-              _miniBtn(
-                '0x03 封口',
-                controller.isConnectedA || controller.isConnectedB,
-                () => _runCommand(
-                  () => controller.sendPackSeal(
-                    orderId: _safeInt(_sealOrderId, fallback: 1),
-                    sealAction: _safeInt(_sealAction, fallback: 1),
-                  ),
-                  '打包封口完成',
-                ),
-              ),
-              _miniBtn(
-                '0x05 存放',
-                controller.isConnectedA || controller.isConnectedB,
-                () => _runCommand(
-                  () => controller.sendStore(
-                    packageId: _safeInt(_storePackageId, fallback: 1),
-                    cabinetNo: _safeInt(_storeCabinetNo, fallback: 1),
-                  ),
-                  '存放完成',
-                ),
-              ),
-              _miniBtn(
-                '0x07 开锁',
-                controller.isConnectedA || controller.isConnectedB,
-                () => _runCommand(
-                  () => controller.sendPickupUnlock(
-                    orderId: _safeInt(_unlockOrderId, fallback: 1),
-                    cabinetNo: _safeInt(_unlockCabinetNo, fallback: 1),
-                  ),
-                  '开锁完成',
-                ),
-              ),
-              _miniBtn(
-                '0x0B 测试',
-                controller.isConnectedA || controller.isConnectedB,
-                () => _runCommand(
-                  () => controller.sendDeviceTest(
-                    testType: _safeInt(_testType, fallback: 2),
-                    targetId: _safeInt(_testTargetId, fallback: 0),
-                    action: _safeInt(_testAction, fallback: 11),
-                  ),
-                  '测试完成',
-                ),
-              ),
-              _miniBtn(
-                '0x0C 退货',
-                controller.isConnectedA || controller.isConnectedB,
-                () => _runCommand(
-                  () => controller.sendReturnGoods(
-                    orderId: _safeInt(_returnOrderId, fallback: 1),
-                    cabinetNo: _safeInt(_returnCabinetNo, fallback: 1),
-                  ),
-                  '退货完成',
-                ),
-              ),
-            ],
           ),
           const SizedBox(height: 10),
           // ── 主控参数输入行 ──
@@ -1096,6 +1009,8 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                 height: 30,
                 child: TextField(
                   controller: _packerNodeAddr,
+                  smartQuotesType: SmartQuotesType.disabled,
+                  smartDashesType: SmartDashesType.disabled,
                   style: GoogleFonts.ibmPlexMono(
                     color: const Color(0xFFD6E9FF),
                     fontSize: 11,
@@ -1164,14 +1079,11 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                 ),
               ),
               _miniBtn(
-                '0x44 避让',
+                '0x44 投料',
                 true,
                 () => _runCommand(
-                  () => controller.sendPackerAvoid(
-                    nodeAddress: nodeAddr,
-                    action: 2,
-                  ),
-                  '避让控制',
+                  () => controller.sendPackerTriggerDeliver(nodeAddress: nodeAddr),
+                  '投料触发',
                 ),
               ),
               _miniBtn(
@@ -1194,11 +1106,11 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                 ),
               ),
               _miniBtn(
-                '0x47 心跳',
+                '0x47 打印',
                 true,
                 () => _runCommand(
-                  () => controller.sendPackerHeartbeat(nodeAddress: nodeAddr),
-                  '心跳',
+                  () => controller.sendPackerPrinterForward(nodeAddress: nodeAddr),
+                  '打印机透传',
                 ),
               ),
               _miniBtn(
@@ -1258,7 +1170,31 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     );
   }
 
-  /// ── 端口 B 面板：右协议 (USART1 / 日志+DBUS调节) ──
+  Widget _sysInfoBadge(String label, String value, Color color) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          label,
+          style: GoogleFonts.ibmPlexSans(
+            color: const Color(0xFFA7C7EB),
+            fontSize: 10,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: GoogleFonts.ibmPlexMono(
+            color: color,
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// ── 端口 B 面板：右协议 (USART1 / 日志+DGUS调节) ──
   Widget _buildPortBPanel(HmiController controller) {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -1280,7 +1216,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
               ),
               const SizedBox(width: 8),
               Text(
-                '右协议 — USART1 / 日志+DBUS调节 / CRC16-DBUS',
+                '右协议 — USART1 / 日志+DGUS调节 / 5A A5',
                 style: GoogleFonts.ibmPlexSans(
                   color: const Color(0xFFE0EEFF),
                   fontSize: 15,
@@ -1290,9 +1226,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
             ],
           ),
           const SizedBox(height: 12),
-          // ── DBUS 参数调节 ──
+          // ── DGUS 参数调节 ──
           Text(
-            'DBUS 参数调节（通过 USART1 读写打包机运行时参数）',
+            'DGUS 参数调节（通过 USART1 的 5A A5 帧读写参数）',
             style: GoogleFonts.ibmPlexSans(
               color: const Color(0xFFA6C5EA),
               fontSize: 11,
@@ -1352,6 +1288,60 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
               _miniBtn('恢复默认值', true, () => _dbusLoadDefault(controller)),
             ],
           ),
+          const SizedBox(height: 12),
+          // ── 系统信息区 ──
+          const Divider(color: Color(0xFF233A62), height: 1),
+          const SizedBox(height: 8),
+          Row(
+            children: <Widget>[
+              const Icon(Icons.info_outline, color: Color(0xFF5ED0FF), size: 16),
+              const SizedBox(width: 6),
+              Text(
+                'DGUS 系统信息 (VP 0x1000~0x1003)',
+                style: GoogleFonts.ibmPlexSans(
+                  color: const Color(0xFFA6C5EA),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const Spacer(),
+              _miniBtn('读取状态', _sysInfoLoading == false, () => _dbusSysInfo(controller)),
+            ],
+          ),
+          const SizedBox(height: 6),
+          if (_sysInfoData != null)
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0B1E3A),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFF2D4F7E)),
+              ),
+              child: Row(
+                children: <Widget>[
+                  _sysInfoBadge('状态', '0x${toHex2(_sysInfoData![0])}', const Color(0xFF5ED0FF)),
+                  const SizedBox(width: 12),
+                  _sysInfoBadge('运行', '${_sysInfoData![1]}', _sysInfoData![1] == 1 ? const Color(0xFFFFE082) : const Color(0xFF90A4AE)),
+                  const SizedBox(width: 12),
+                  _sysInfoBadge('自检', '${_sysInfoData![2]}', _sysInfoData![2] == 1 ? const Color(0xFF9FFFC9) : const Color(0xFFFFE082)),
+                  const SizedBox(width: 12),
+                  _sysInfoBadge('报警', '0x${toHex2(_sysInfoData![3])}', _sysInfoData![3] != 0 ? const Color(0xFFFF6B6B) : const Color(0xFF90A4AE)),
+                ],
+              ),
+            ),
+          if (_sysInfoStatus.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                _sysInfoStatus,
+                style: GoogleFonts.ibmPlexMono(
+                  color: _sysInfoData != null
+                      ? const Color(0xFF9FFFC9)
+                      : const Color(0xFFFFE082),
+                  fontSize: 12,
+                ),
+              ),
+            ),
           const SizedBox(height: 12),
           // ── 日志接收区 ──
           const Divider(color: Color(0xFF233A62), height: 1),
@@ -1447,10 +1437,10 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     }
   }
 
-  /// DBUS 读取参数
+  /// DGUS 读取参数
   Future<void> _dbusRead(HmiController controller) async {
     final paramId = _safeHex(_dbusParamId.text, fallback: 0x10);
-    final nodeAddr = _safeHex(_dbusNodeAddr.text, fallback: 0x20);
+    final nodeAddr = _safeHex(_dbusNodeAddr.text, fallback: 0xFA);
     final result = await controller.sendParamRead(
       nodeAddress: nodeAddr,
       paramId: paramId,
@@ -1468,11 +1458,11 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     }
   }
 
-  /// DBUS 写入参数
+  /// DGUS 写入参数
   Future<void> _dbusWrite(HmiController controller) async {
     final paramId = _safeHex(_dbusParamId.text, fallback: 0x10);
     final value = _safeInt(_dbusValue, fallback: 0);
-    final nodeAddr = _safeHex(_dbusNodeAddr.text, fallback: 0x20);
+    final nodeAddr = _safeHex(_dbusNodeAddr.text, fallback: 0xFA);
     final result = await controller.sendParamWrite(
       nodeAddress: nodeAddr,
       paramId: paramId,
@@ -1490,18 +1480,18 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     }
   }
 
-  /// DBUS 保存 EEPROM
+  /// DGUS 保存 EEPROM
   Future<void> _dbusSave(HmiController controller) async {
-    final nodeAddr = _safeHex(_dbusNodeAddr.text, fallback: 0x20);
+    final nodeAddr = _safeHex(_dbusNodeAddr.text, fallback: 0xFA);
     final ok = await controller.sendParamSave(nodeAddress: nodeAddr);
     if (!mounted) return;
     setState(() => _dbusStatus = ok ? '已保存到 EEPROM' : '保存失败');
   }
 
-  /// DBUS 批量读取
+  /// DGUS 批量读取
   Future<void> _dbusBatchRead(HmiController controller, int count) async {
     final allParams = kParamDefs.take(count).toList();
-    final nodeAddr = _safeHex(_dbusNodeAddr.text, fallback: 0x20);
+    final nodeAddr = _safeHex(_dbusNodeAddr.text, fallback: 0xFA);
     setState(() => _dbusStatus = '批量读取 ${allParams.length} 项...');
     int ok = 0;
     for (final p in allParams) {
@@ -1519,7 +1509,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     setState(() => _dbusStatus = '批量读取完成: $ok/${allParams.length} 项成功');
   }
 
-  /// DBUS 恢复默认值
+  /// DGUS 恢复默认值
   Future<void> _dbusLoadDefault(HmiController controller) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -1539,10 +1529,40 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
       ),
     );
     if (confirmed != true) return;
-    final nodeAddr = _safeHex(_dbusNodeAddr.text, fallback: 0x20);
+    final nodeAddr = _safeHex(_dbusNodeAddr.text, fallback: 0xFA);
     final ok = await controller.sendParamLoad(nodeAddress: nodeAddr, action: 1);
     if (!mounted) return;
     setState(() => _dbusStatus = ok ? '已恢复默认值，请重新读取' : '恢复默认值失败');
+  }
+
+  /// DGUS 读取系统信息 (VP 0x1000~0x1003)
+  Future<void> _dbusSysInfo(HmiController controller) async {
+    final nodeAddr = _safeHex(_dbusNodeAddr.text, fallback: 0xFA);
+    setState(() {
+      _sysInfoLoading = true;
+      _sysInfoStatus = '读取 DGUS 系统信息...';
+    });
+    final data = await controller.sendDgusSystemInfo(nodeAddress: nodeAddr);
+    if (!mounted) return;
+    if (data != null) {
+      final running = data[1];
+      final bootDone = data[2];
+      setState(() {
+        _sysInfoData = data;
+        _sysInfoLoading = false;
+        _sysInfoStatus = running == 1
+            ? '机器运行中 — DGUS 参数调节被门禁锁定'
+            : bootDone == 1
+                ? '空闲停机 — DGUS 参数调节允许'
+                : '自检中 — DGUS 参数调节被门禁锁定';
+      });
+    } else {
+      setState(() {
+        _sysInfoData = null;
+        _sysInfoLoading = false;
+        _sysInfoStatus = '读取失败（门禁锁定或串口未连通）';
+      });
+    }
   }
 
   /// ── 实时协议日志面板 ──
@@ -1650,7 +1670,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   // (removed unused _buildPortPanel)
   Widget _buildSettingsPage(HmiController controller) {
     final params = kParamDefsByGroup;
-    final nodeAddr = _safeHex(_packerNodeAddr.text, fallback: 0x20);
+    final nodeAddr = _safeHex(_packerNodeAddr.text, fallback: 0xFA);
 
     return Container(
       color: const Color(0xFF08152A),
@@ -1674,6 +1694,8 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                       width: compact ? 100 : 130,
                       child: TextField(
                         controller: _packerNodeAddr,
+                        smartQuotesType: SmartQuotesType.disabled,
+                        smartDashesType: SmartDashesType.disabled,
                         style: GoogleFonts.ibmPlexMono(
                           color: const Color(0xFFD6E9FF),
                           fontSize: 13,
@@ -1809,6 +1831,30 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     );
   }
 
+  /// 格式化大整数（加千分位逗号）
+  static String _fmt(int n) {
+    final s = n.toString();
+    final buf = StringBuffer();
+    for (var i = 0; i < s.length; i++) {
+      if (i > 0 && (s.length - i) % 3 == 0) buf.write(',');
+      buf.write(s[i]);
+    }
+    return buf.toString();
+  }
+
+  /// 参数范围指示
+  Widget _paramRange(HmiParamDef p) {
+    return Text(
+      '${_fmt(p.min)} ~ ${_fmt(p.max)}${p.unit.isNotEmpty ? ' ${p.unit}' : ''}',
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: GoogleFonts.ibmPlexMono(
+        color: const Color(0xFF4A6A8A),
+        fontSize: 11,
+      ),
+    );
+  }
+
   /// 单个参数行
   Widget _buildParamRow(
     HmiController controller,
@@ -1833,6 +1879,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     _paramLabel(param),
+                    _paramRange(param),
                     const SizedBox(height: 2),
                     Row(
                       children: <Widget>[
@@ -1850,11 +1897,13 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                 )
               : Row(
                   children: <Widget>[
-                    SizedBox(width: 160, child: _paramLabel(param)),
-                    const SizedBox(width: 8),
-                    SizedBox(width: 90, child: _paramCurValue(raw, param)),
+                    SizedBox(width: 130, child: _paramLabel(param)),
                     const SizedBox(width: 6),
-                    SizedBox(width: 90, child: _paramField(editor, inRange)),
+                    SizedBox(width: 100, child: _paramRange(param)),
+                    const SizedBox(width: 6),
+                    SizedBox(width: 80, child: _paramCurValue(raw, param)),
+                    const SizedBox(width: 6),
+                    SizedBox(width: 80, child: _paramField(editor, inRange)),
                     const SizedBox(width: 4),
                     _writeBtn(controller, nodeAddr, param, editor),
                     const SizedBox(width: 4),
@@ -1891,6 +1940,8 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   Widget _paramField(TextEditingController editor, bool inRange) {
     return TextField(
       controller: editor,
+      smartQuotesType: SmartQuotesType.disabled,
+      smartDashesType: SmartDashesType.disabled,
       style: GoogleFonts.ibmPlexMono(
         color: inRange ? const Color(0xFFD6E9FF) : const Color(0xFFFF9595),
         fontSize: 12,
@@ -2013,25 +2064,35 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
       _paramsStatus = '正在读取全部参数\u2026';
     });
     int count = 0;
+    int errors = 0;
     for (final p in kParamDefs) {
-      final value = await controller.sendParamRead(
-        nodeAddress: nodeAddr,
-        paramId: p.id,
-      );
-      if (value != null) {
-        _paramValues[p.id] = value;
-        _paramEditors[p.id]?.text = value.toString();
-        count++;
+      try {
+        final value = await controller.sendParamRead(
+          nodeAddress: nodeAddr,
+          paramId: p.id,
+        );
+        if (value != null) {
+          _paramValues[p.id] = value;
+          _paramEditors[p.id]?.text = value.toString();
+          count++;
+        } else {
+          errors++;
+        }
+      } catch (e) {
+        errors++;
       }
       // 每读 10 个更新一次 UI
-      if (count % 10 == 0 && mounted) {
-        setState(() => _paramsStatus = '已读取 $count/${kParamDefs.length}\u2026');
+      if ((count + errors) % 10 == 0 && mounted) {
+        setState(() => _paramsStatus =
+            '已读取 $count/${kParamDefs.length}\u2026 ($errors项失败)');
       }
     }
     if (mounted) {
       setState(() {
         _paramsLoading = false;
-        _paramsStatus = '读取完成: $count/${kParamDefs.length} 个参数';
+        _paramsStatus = errors > 0
+            ? '读取完成: $count/${kParamDefs.length} 个参数 ($errors 项失败)'
+            : '读取完成: $count/${kParamDefs.length} 个参数';
       });
     }
   }
@@ -2306,6 +2367,8 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     return TextField(
       controller: controller,
       keyboardType: TextInputType.number,
+      smartQuotesType: SmartQuotesType.disabled,
+      smartDashesType: SmartDashesType.disabled,
       style: const TextStyle(color: Color(0xFFE6F2FF)),
       decoration: _inputDecoration(label),
     );
@@ -2314,6 +2377,8 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   Widget _textField(String label, TextEditingController controller) {
     return TextField(
       controller: controller,
+      smartQuotesType: SmartQuotesType.disabled,
+      smartDashesType: SmartDashesType.disabled,
       style: const TextStyle(color: Color(0xFFE6F2FF)),
       decoration: _inputDecoration(label),
     );

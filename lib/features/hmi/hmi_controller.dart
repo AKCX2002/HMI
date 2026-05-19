@@ -18,7 +18,6 @@ class HmiLogEntry {
     this.note,
     this.attempt,
     this.portLabel = '',
-    this.rawText,
   });
 
   final String direction;
@@ -29,15 +28,8 @@ class HmiLogEntry {
   final int? attempt;
   final String portLabel;
 
-  /// 端口 B 文本日志内容（非协议帧的 printf 日志行）。
-  final String? rawText;
-
   String get pretty {
     final port = portLabel.isNotEmpty ? ' [$portLabel]' : '';
-    // 文本日志行
-    if (rawText != null) {
-      return '${DateFormat('HH:mm:ss.SSS').format(timestamp)}$port [LOG] $rawText';
-    }
     final base =
         '${DateFormat('HH:mm:ss.SSS').format(timestamp)}$port [$direction] '
         'ADDR=0x${toHex2(frame.address)} FUNC=0x${toHex2(frame.function)} '
@@ -72,13 +64,27 @@ class _FrameWaiter {
   final Completer<HmiFrame> completer = Completer<HmiFrame>();
 }
 
+class _DgusFrame {
+  _DgusFrame({required this.command, required this.data});
+  final int command;
+  final Uint8List data;
+}
+
+class _DgusWaiter {
+  _DgusWaiter(this.matcher);
+  final bool Function(_DgusFrame frame) matcher;
+  final Completer<_DgusFrame> completer = Completer<_DgusFrame>();
+}
+
 /// 单个串口通道的状态与处理逻辑。
 class _PortChannel {
   _PortChannel(this.transport, this.configRef);
 
   final SerialTransport transport;
   final List<int> rxBuffer = <int>[];
+  final List<int> dgusRxBuffer = <int>[];
   final List<_FrameWaiter> waiters = <_FrameWaiter>[];
+  final List<_DgusWaiter> dgusWaiters = <_DgusWaiter>[];
   StreamSubscription<Uint8List>? subscription;
 
   /// 指向外部可变的 HmiPortConfig 引用，以便读取最新配置。
@@ -91,7 +97,9 @@ class _PortChannel {
     subscription = null;
     transport.disconnect();
     rxBuffer.clear();
+    dgusRxBuffer.clear();
     waiters.clear();
+    dgusWaiters.clear();
   }
 }
 
@@ -104,7 +112,7 @@ class HmiController extends ChangeNotifier {
   HmiController(this._transportA, {SerialTransport? transportB})
     : _transportB = transportB ?? SerialTransportDummy(),
       _portAConfig = HmiPortConfig(baudRate: 9600, label: '端口 A（主控协议）'),
-      _portBConfig = HmiPortConfig(baudRate: 9600, crcAlgorithm: CrcAlgorithm.dbus, label: '端口 B（打包机直连）') {
+      _portBConfig = HmiPortConfig(baudRate: 9600, crcAlgorithm: CrcAlgorithm.dgus, label: '端口 B（打包机直连）') {
     _channelA = _PortChannel(_transportA, () => _portAConfig);
     _channelB = _PortChannel(_transportB, () => _portBConfig);
     _subscriptionA = _transportA.incomingBytes.listen(
@@ -352,8 +360,7 @@ class HmiController extends ChangeNotifier {
       message: '执行失败',
     );
 
-    // 使用帧自身指定的 CRC 算法构建帧（尊重调用者语义，
-    // 不被端口配置覆盖：端口 B 的 DBUS CRC 仅用于接收校验）
+    // 使用帧自身指定的 CRC 算法构建帧（尊重调用者语义）。
     final frameWithCrc = HmiFrame(
       address: request.frame.address,
       function: request.frame.function,
@@ -393,6 +400,23 @@ class HmiController extends ChangeNotifier {
             Duration(milliseconds: p.timeoutMs),
           );
           final elapsed = DateTime.now().difference(start);
+          final function = request.frame.function & 0xFF;
+          final isPackerResponse = function >= 0x40 && function <= 0x53;
+          if (isPackerResponse) {
+            final resultCode = response.data[0] & 0xFF;
+            if (resultCode != 0x00) {
+              finalResult = CommandExecutionResult(
+                success: false,
+                message:
+                    '${request.label}失败: ${packerResultName(resultCode)}'
+                    '(0x${toHex2(resultCode)})',
+                response: response,
+                elapsed: elapsed,
+                attempts: attempt,
+              );
+              break;
+            }
+          }
           finalResult = CommandExecutionResult(
             success: true,
             message: '${request.label}成功',
@@ -447,189 +471,6 @@ class HmiController extends ChangeNotifier {
     return runCommand(request, policy: policy, usePortB: true);
   }
 
-  // ────────────── 高层命令（端口 A） ──────────────
-
-  Future<CommandExecutionResult> sendOrder({
-    required int orderId,
-    required int quantity,
-    required int cabinetAddress,
-    required int layer,
-    required int lane,
-  }) {
-    return runCommand(
-      HmiCommandRequest(
-        command: HmiCommandCode.orderSend,
-        frame: HmiFrame(
-          address: HmiFrame.appRequestAddress,
-          function: HmiCommandCode.orderSend.code,
-          data: <int>[
-            orderId & 0xFF,
-            quantity & 0xFF,
-            cabinetAddress & 0xFF,
-            layer & 0xFF,
-            lane & 0xFF,
-          ],
-        ),
-        expectedFunctions:
-            kRequestToExpectedResponseFunctions[HmiCommandCode
-                .orderSend
-                .code] ??
-            <int>{0x01},
-        note: '订单下发',
-      ),
-    );
-  }
-
-  Future<CommandExecutionResult> sendPackSeal({
-    required int orderId,
-    int sealAction = 0x01,
-  }) {
-    return runCommand(
-      HmiCommandRequest(
-        command: HmiCommandCode.packSeal,
-        frame: HmiFrame(
-          address: HmiFrame.appRequestAddress,
-          function: HmiCommandCode.packSeal.code,
-          data: <int>[orderId & 0xFF, sealAction & 0xFF],
-        ),
-        expectedFunctions:
-            kRequestToExpectedResponseFunctions[HmiCommandCode.packSeal.code] ??
-            <int>{0x03},
-        note: '打包封口',
-      ),
-    );
-  }
-
-  Future<CommandExecutionResult> sendStore({
-    required int packageId,
-    required int cabinetNo,
-  }) {
-    return runCommand(
-      HmiCommandRequest(
-        command: HmiCommandCode.store,
-        frame: HmiFrame(
-          address: HmiFrame.appRequestAddress,
-          function: HmiCommandCode.store.code,
-          data: <int>[packageId & 0xFF, cabinetNo & 0xFF],
-        ),
-        expectedFunctions:
-            kRequestToExpectedResponseFunctions[HmiCommandCode.store.code] ??
-            <int>{0x05},
-        note: '储物格存放',
-      ),
-    );
-  }
-
-  Future<CommandExecutionResult> sendPickupUnlock({
-    required int orderId,
-    required int cabinetNo,
-  }) {
-    return runCommand(
-      HmiCommandRequest(
-        command: HmiCommandCode.pickupUnlock,
-        frame: HmiFrame(
-          address: HmiFrame.appRequestAddress,
-          function: HmiCommandCode.pickupUnlock.code,
-          data: <int>[orderId & 0xFF, cabinetNo & 0xFF],
-        ),
-        expectedFunctions:
-            kRequestToExpectedResponseFunctions[HmiCommandCode
-                .pickupUnlock
-                .code] ??
-            <int>{0x07},
-        note: '取货开锁',
-      ),
-    );
-  }
-
-  Future<CommandExecutionResult> sendStatusQuery({int queryType = 0x01}) {
-    return runCommand(
-      HmiCommandRequest(
-        command: HmiCommandCode.statusQuery,
-        frame: HmiFrame(
-          address: HmiFrame.appRequestAddress,
-          function: HmiCommandCode.statusQuery.code,
-          data: <int>[queryType & 0xFF],
-        ),
-        expectedFunctions:
-            kRequestToExpectedResponseFunctions[HmiCommandCode
-                .statusQuery
-                .code] ??
-            <int>{0x09},
-        note: '状态查询',
-      ),
-    );
-  }
-
-  Future<CommandExecutionResult> sendDeviceTest({
-    required int testType,
-    required int targetId,
-    required int action,
-  }) {
-    return runCommand(
-      HmiCommandRequest(
-        command: HmiCommandCode.deviceTest,
-        frame: HmiFrame(
-          address: HmiFrame.appRequestAddress,
-          function: HmiCommandCode.deviceTest.code,
-          data: <int>[
-            testType & 0xFF,
-            targetId & 0xFF,
-            (targetId >> 8) & 0xFF,
-            action & 0xFF,
-          ],
-        ),
-        expectedFunctions:
-            kRequestToExpectedResponseFunctions[HmiCommandCode
-                .deviceTest
-                .code] ??
-            <int>{0x0B},
-        note: '设备测试',
-      ),
-    );
-  }
-
-  Future<CommandExecutionResult> sendReturnGoods({
-    required int orderId,
-    required int cabinetNo,
-  }) {
-    return runCommand(
-      HmiCommandRequest(
-        command: HmiCommandCode.returnGoods,
-        frame: HmiFrame(
-          address: HmiFrame.appRequestAddress,
-          function: HmiCommandCode.returnGoods.code,
-          data: <int>[orderId & 0xFF, cabinetNo & 0xFF],
-        ),
-        expectedFunctions:
-            kRequestToExpectedResponseFunctions[HmiCommandCode
-                .returnGoods
-                .code] ??
-            <int>{0x0C},
-        note: '退货',
-      ),
-    );
-  }
-
-  Future<CommandExecutionResult> sendInitQuery() {
-    return runCommand(
-      HmiCommandRequest(
-        command: HmiCommandCode.initQuery,
-        frame: HmiFrame(
-          address: HmiFrame.appRequestAddress,
-          function: HmiCommandCode.initQuery.code,
-          data: const <int>[0x01],
-        ),
-        expectedFunctions:
-            kRequestToExpectedResponseFunctions[HmiCommandCode
-                .initQuery
-                .code] ??
-            <int>{0x10},
-        note: '初始化查询',
-      ),
-    );
-  }
-
   // ────────────── 打包机命令（端口 B ─ 若端口 B 未连接则回退到端口 A） ──────────────
 
   Future<CommandExecutionResult> sendPackerControl({
@@ -670,14 +511,13 @@ class HmiController extends ChangeNotifier {
     );
   }
 
-  Future<CommandExecutionResult> sendPackerAvoid({
+  Future<CommandExecutionResult> sendPackerTriggerDeliver({
     required int nodeAddress,
-    required int action,
   }) {
     return _runPackerCommand(
-      HmiPackerFunction.avoidCtrl,
+      HmiPackerFunction.triggerDeliver,
       nodeAddress: nodeAddress,
-      payload: <int>[action & 0xFF, 0x00],
+      payload: const <int>[0x01, 0x00],
     );
   }
 
@@ -701,14 +541,14 @@ class HmiController extends ChangeNotifier {
     );
   }
 
-  Future<CommandExecutionResult> sendPackerHeartbeat({
+  Future<CommandExecutionResult> sendPackerPrinterForward({
     required int nodeAddress,
-    int hostState = 0,
+    int printerCmd = 0x81,
   }) {
     return _runPackerCommand(
-      HmiPackerFunction.heartbeat,
+      HmiPackerFunction.printerForward,
       nodeAddress: nodeAddress,
-      payload: <int>[hostState & 0xFF],
+      payload: <int>[printerCmd & 0xFF],
     );
   }
 
@@ -735,15 +575,22 @@ class HmiController extends ChangeNotifier {
     required int nodeAddress,
     required int paramId,
   }) async {
-    final result = await _runPackerCommand(
-      HmiPackerFunction.paramRead,
-      nodeAddress: nodeAddress,
-      payload: <int>[paramId & 0xFF],
+    final dgusAddr = 0x2000 + ((paramId - 0x10) * 2);
+    final resp = await _runDgusCommand(
+      tx: <int>[0x5A, 0xA5, 0x04, 0x83, (dgusAddr >> 8) & 0xFF, dgusAddr & 0xFF, 0x02],
+      matcher: (f) =>
+          f.command == 0x83 &&
+          f.data.length >= 7 &&
+          f.data[0] == ((dgusAddr >> 8) & 0xFF) &&
+          f.data[1] == (dgusAddr & 0xFF) &&
+          f.data[2] == 0x02,
+      label: 'DGUS读取',
     );
-    if (!result.success || result.response == null) return null;
-    final d = result.response!.data;
-    if (d[0] != 0x00) return null;
-    return d[3] | (d[4] << 8) | (d[5] << 16) | (d[6] << 24);
+    if (resp == null) return null;
+    return (resp.data[3] << 24) |
+        (resp.data[4] << 16) |
+        (resp.data[5] << 8) |
+        resp.data[6];
   }
 
   /// 写入单个运行时参数 (仅 RAM, 不自动保存)。
@@ -752,47 +599,134 @@ class HmiController extends ChangeNotifier {
     required int paramId,
     required int value,
   }) async {
-    final result = await _runPackerCommand(
-      HmiPackerFunction.paramWrite,
-      nodeAddress: nodeAddress,
-      payload: <int>[
-        paramId & 0xFF,
-        4,
-        value & 0xFF,
-        (value >> 8) & 0xFF,
-        (value >> 16) & 0xFF,
-        (value >> 24) & 0xFF,
+    final dgusAddr = 0x2000 + ((paramId - 0x10) * 2);
+    final w0 = (value >> 16) & 0xFFFF;
+    final w1 = value & 0xFFFF;
+    final resp = await _runDgusCommand(
+      tx: <int>[
+        0x5A,
+        0xA5,
+        0x07,
+        0x82,
+        (dgusAddr >> 8) & 0xFF,
+        dgusAddr & 0xFF,
+        (w0 >> 8) & 0xFF,
+        w0 & 0xFF,
+        (w1 >> 8) & 0xFF,
+        w1 & 0xFF,
       ],
+      matcher: (f) =>
+          f.command == 0x82 &&
+          f.data.length >= 2 &&
+          f.data[0] == 0x4F &&
+          f.data[1] == 0x4B,
+      label: 'DGUS写入',
     );
-    if (!result.success || result.response == null) return null;
-    final d = result.response!.data;
-    if (d[0] != 0x00) return null;
-    return d[2] | (d[3] << 8) | (d[4] << 16) | (d[5] << 24);
+    if (resp == null) return null;
+    return value;
   }
 
   /// 保存当前运行时参数到 EEPROM。
   Future<bool> sendParamSave({required int nodeAddress}) async {
-    final result = await _runPackerCommand(
-      HmiPackerFunction.paramSave,
-      nodeAddress: nodeAddress,
+    final resp = await _runDgusCommand(
+      tx: const <int>[0x5A, 0xA5, 0x05, 0x82, 0x40, 0x00, 0x00, 0x01],
+      matcher: (f) =>
+          f.command == 0x82 &&
+          f.data.length >= 2 &&
+          f.data[0] == 0x4F &&
+          f.data[1] == 0x4B,
+      label: 'DGUS保存',
     );
-    return result.success &&
-        result.response != null &&
-        result.response!.data[0] == 0x00;
+    return resp != null;
   }
 
   Future<bool> sendParamLoad({
     required int nodeAddress,
     required int action,
   }) async {
-    final result = await _runPackerCommand(
-      HmiPackerFunction.paramLoad,
-      nodeAddress: nodeAddress,
-      payload: <int>[action & 0xFF],
+    final addr = (action == 0) ? 0x4001 : 0x4002;
+    final resp = await _runDgusCommand(
+      tx: <int>[
+        0x5A,
+        0xA5,
+        0x05,
+        0x82,
+        (addr >> 8) & 0xFF,
+        addr & 0xFF,
+        0x00,
+        0x01,
+      ],
+      matcher: (f) =>
+          f.command == 0x82 &&
+          f.data.length >= 2 &&
+          f.data[0] == 0x4F &&
+          f.data[1] == 0x4B,
+      label: (action == 0) ? 'DGUS加载EEPROM' : 'DGUS恢复默认',
     );
-    return result.success &&
-        result.response != null &&
-        result.response!.data[0] == 0x00;
+    return resp != null;
+  }
+
+  /// 读取 DGUS 系统信息区 (VP 0x1000~0x1003)。
+  ///
+  /// 返回 4 个 uint16_t 值: [state, running, bootDone, alarmCode]。
+  /// 当门禁锁定（机器运行中）时返回 null。
+  Future<List<int>?> sendDgusSystemInfo({required int nodeAddress}) async {
+    final resp = await _runDgusCommand(
+      tx: const <int>[0x5A, 0xA5, 0x04, 0x83, 0x10, 0x00, 0x04],
+      matcher: (f) =>
+          f.command == 0x83 &&
+          f.data.length >= 11 &&
+          f.data[0] == 0x10 &&
+          f.data[1] == 0x00 &&
+          f.data[2] == 0x04,
+      label: 'DGUS系统信息',
+    );
+    if (resp == null) return null;
+    return <int>[
+      (resp.data[3] << 8) | resp.data[4],   // 0x1000: state
+      (resp.data[5] << 8) | resp.data[6],   // 0x1001: running
+      (resp.data[7] << 8) | resp.data[8],   // 0x1002: boot_done
+      (resp.data[9] << 8) | resp.data[10],  // 0x1003: alarm
+    ];
+  }
+
+  Future<_DgusFrame?> _runDgusCommand({
+    required List<int> tx,
+    required bool Function(_DgusFrame frame) matcher,
+    required String label,
+  }) async {
+    final channel = _transportB.isConnected ? _channelB : _channelA;
+    final transport = channel.transport;
+    if (!transport.isConnected) {
+      _statusMessage = '$label失败: 串口未连接';
+      notifyListeners();
+      return null;
+    }
+
+    final waiter = _DgusWaiter(matcher);
+    channel.dgusWaiters.add(waiter);
+    await transport.write(Uint8List.fromList(tx));
+    final txHex = tx.map((e) => toHex2(e)).join(' ');
+    _appendDgusLog('DGUS TX $txHex', channel.config.label);
+
+    try {
+      final frame = await waiter.completer.future.timeout(
+        Duration(milliseconds: _retryPolicy.timeoutMs),
+      );
+      _statusMessage = '$label成功';
+      notifyListeners();
+      return frame;
+    } on TimeoutException {
+      channel.dgusWaiters.remove(waiter);
+      _statusMessage = '$label超时(${_retryPolicy.timeoutMs}ms)';
+      notifyListeners();
+      return null;
+    } catch (_) {
+      channel.dgusWaiters.remove(waiter);
+      _statusMessage = '$label失败';
+      notifyListeners();
+      return null;
+    }
   }
 
   Future<CommandExecutionResult> _runPackerCommand(
@@ -804,7 +738,7 @@ class HmiController extends ChangeNotifier {
     final usePortB = _transportB.isConnected;
     return runCommand(
       HmiCommandRequest(
-        command: HmiCommandCode.deviceTest,
+        command: HmiCommandCode.packer,
         frame: HmiFrame(
           address: nodeAddress & 0xFF,
           function: function.code,
@@ -831,7 +765,7 @@ class HmiController extends ChangeNotifier {
   }) {
     return runCommand(
       HmiCommandRequest(
-        command: HmiCommandCode.deviceTest,
+        command: HmiCommandCode.custom,
         frame: HmiFrame(
           address: address,
           function: functionCode,
@@ -841,7 +775,7 @@ class HmiController extends ChangeNotifier {
         expectedFunctions:
             expectedFunctions ??
             kRequestToExpectedResponseFunctions[functionCode] ??
-            <int>{functionCode, 0x0A},
+            <int>{functionCode},
         note: note ?? '自定义帧',
       ),
       usePortB: usePortB,
@@ -856,12 +790,50 @@ class HmiController extends ChangeNotifier {
   // ────────────── 内部处理 ──────────────
 
   void _onIncomingBytes(Uint8List bytes, _PortChannel channel) {
-    channel.rxBuffer.addAll(bytes);
-    // 端口 B (USART1) 混合流量：先提取 printf 文本日志，再解析协议帧
     if (channel == _channelB) {
-      _extractTextLogs(channel);
+      _consumeDgusFrames(bytes, channel);
+      return;
     }
+
+    channel.rxBuffer.addAll(bytes);
     _consumeFrames(channel);
+  }
+
+  void _consumeDgusFrames(Uint8List bytes, _PortChannel channel) {
+    final buf = channel.dgusRxBuffer;
+    buf.addAll(bytes);
+    while (buf.length >= 4) {
+      final start = buf.indexWhere((v) => v == 0x5A);
+      if (start < 0) {
+        buf.clear();
+        return;
+      }
+      if (start > 0) {
+        buf.removeRange(0, start);
+      }
+      if (buf.length < 4) return;
+      if (buf[1] != 0xA5) {
+        buf.removeAt(0);
+        continue;
+      }
+      final payloadLen = buf[2] & 0xFF;
+      final frameLen = payloadLen + 3;
+      if (payloadLen <= 0 || frameLen > 260) {
+        buf.removeAt(0);
+        continue;
+      }
+      if (buf.length < frameLen) return;
+      final frame = _DgusFrame(
+        command: buf[3] & 0xFF,
+        data: Uint8List.fromList(buf.sublist(4, frameLen)),
+      );
+      _dispatchDgusWaiters(channel, frame);
+      final decoded = _decodeDgusLogLine(frame);
+      if (decoded != null && decoded.isNotEmpty) {
+        _appendDgusLog(decoded, channel.config.label);
+      }
+      buf.removeRange(0, frameLen);
+    }
   }
 
   void _consumeFrames(_PortChannel channel) {
@@ -926,6 +898,15 @@ class HmiController extends ChangeNotifier {
     }
   }
 
+  void _dispatchDgusWaiters(_PortChannel channel, _DgusFrame frame) {
+    final index = channel.dgusWaiters.indexWhere((w) => w.matcher(frame));
+    if (index < 0) return;
+    final waiter = channel.dgusWaiters.removeAt(index);
+    if (!waiter.completer.isCompleted) {
+      waiter.completer.complete(frame);
+    }
+  }
+
   void _removeWaiter(_PortChannel channel, _FrameWaiter waiter) {
     channel.waiters.remove(waiter);
   }
@@ -954,8 +935,8 @@ class HmiController extends ChangeNotifier {
     }
   }
 
-  /// 追加文本日志条目（端口 B printf 调试输出）。
-  void _appendTextLog(String text, String portLabel) {
+  /// 追加 DBUS/DGUS 协议日志条目（由变量帧解析而来）。
+  void _appendDgusLog(String text, String portLabel) {
     // 构造占位帧以满足 HmiLogEntry 非空约束
     final placeholder = HmiFrame(address: 0, function: 0, data: const <int>[]);
     _logs.insert(
@@ -964,9 +945,8 @@ class HmiController extends ChangeNotifier {
         direction: 'LOG',
         frame: placeholder,
         timestamp: DateTime.now(),
-        decoded: const HmiDecodedFrame(title: '', summary: '', rawDataHex: ''),
+        decoded: HmiDecodedFrame(title: 'DGUS日志', summary: text, rawDataHex: ''),
         portLabel: portLabel,
-        rawText: text,
       ),
     );
     if (_logs.length > 800) {
@@ -974,50 +954,20 @@ class HmiController extends ChangeNotifier {
     }
   }
 
-  /// 从端口 B 缓冲区提取 printf 文本日志行（以 \n 或 \r\n 结尾）。
-  /// 提取后文本字节从缓冲区移除，剩余字节继续走帧解析。
-  ///
-  /// 关键：若缓冲区以协议帧同步字节开头，立即返回，避免 0x0A 误拆帧。
-  void _extractTextLogs(_PortChannel channel) {
-    final buf = channel.rxBuffer;
-    if (buf.isEmpty) return;
-
-    // 帧同步字节保护：DBUS 帧 data/CRC 可能含 0x0A，
-    // 若首字节为已知帧地址则跳过文本提取，交由帧解析处理。
-    if (_isFrameSyncByte(buf[0])) return;
-
-    final portLabel = channel.config.label;
-    var newlineAt = buf.indexOf(0x0A); // \n
-    while (newlineAt >= 0) {
-      // 拆出行首到换行前的内容前，再次检查行首是否已变成帧字节
-      if (buf.isNotEmpty && _isFrameSyncByte(buf[0])) return;
-
-      final end = (newlineAt > 0 && buf[newlineAt - 1] == 0x0D) // \r\n
-          ? newlineAt - 1
-          : newlineAt;
-      if (end > 0) {
-        final text = String.fromCharCodes(buf.sublist(0, end));
-        _appendTextLog(text, portLabel);
-      }
-      buf.removeRange(0, newlineAt + 1);
-      newlineAt = buf.indexOf(0x0A);
+  String? _decodeDgusLogLine(_DgusFrame frame) {
+    if (frame.command != 0x82 || frame.data.length < 4) {
+      return null;
     }
-    // 长行无换行保护：超过 512 字节且全部可打印 → 视为整行 flush
-    if (buf.length > 512 && buf.every((b) => b >= 0x20 && b < 0x7F || b == 0x0D)) {
-      final text = String.fromCharCodes(buf);
-      _appendTextLog(text, portLabel);
-      buf.clear();
+    final addr = (frame.data[0] << 8) | frame.data[1];
+    if (addr < 0x3000 || addr > 0x301F) {
+      return null;
     }
-  }
-
-  /// 判断字节是否为已知协议帧地址同步字节。
-  static bool _isFrameSyncByte(int b) {
-    return b == HmiFrame.appRequestAddress || // 0xAF
-        b == HmiFrame.appResponseAddress ||   // 0xBF
-        b == 0x00 ||                           // 打包机响应主机
-        b == 0x20 ||                           // 遗留节点地址
-        b == 0xFA ||                           // 打包机默认节点
-        b == 0xFF;                             // 广播
+    final bytes = frame.data.sublist(2);
+    final ascii = bytes.where((b) => b >= 0x20 && b <= 0x7E).toList();
+    if (ascii.isEmpty) {
+      return null;
+    }
+    return String.fromCharCodes(ascii);
   }
 
   @override
