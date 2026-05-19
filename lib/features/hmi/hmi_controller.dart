@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/protocol/crc_algorithm.dart';
 import '../../core/protocol/hmi_frame.dart';
 import '../../core/serial/serial_transport.dart';
+import 'hmi_port_config.dart';
 import 'hmi_protocol.dart';
 
 class HmiLogEntry {
@@ -15,6 +17,7 @@ class HmiLogEntry {
     required this.decoded,
     this.note,
     this.attempt,
+    this.portLabel = '',
   });
 
   final String direction;
@@ -23,10 +26,12 @@ class HmiLogEntry {
   final HmiDecodedFrame decoded;
   final String? note;
   final int? attempt;
+  final String portLabel;
 
   String get pretty {
+    final port = portLabel.isNotEmpty ? ' [$portLabel]' : '';
     final base =
-        '${DateFormat('HH:mm:ss.SSS').format(timestamp)} [$direction] '
+        '${DateFormat('HH:mm:ss.SSS').format(timestamp)}$port [$direction] '
         'ADDR=0x${toHex2(frame.address)} FUNC=0x${toHex2(frame.function)} '
         'DATA=${payloadToHex(frame.data)}';
     final decodePart = ' ${decoded.title} ${decoded.summary}';
@@ -59,46 +64,129 @@ class _FrameWaiter {
   final Completer<HmiFrame> completer = Completer<HmiFrame>();
 }
 
+/// 单个串口通道的状态与处理逻辑。
+class _PortChannel {
+  _PortChannel(this.transport, this.configRef);
+
+  final SerialTransport transport;
+  final List<int> rxBuffer = <int>[];
+  final List<_FrameWaiter> waiters = <_FrameWaiter>[];
+  StreamSubscription<Uint8List>? subscription;
+
+  /// 指向外部可变的 HmiPortConfig 引用，以便读取最新配置。
+  final HmiPortConfig Function() configRef;
+
+  HmiPortConfig get config => configRef();
+
+  void dispose() {
+    subscription?.cancel();
+    subscription = null;
+    transport.disconnect();
+    rxBuffer.clear();
+    waiters.clear();
+  }
+}
+
 class HmiController extends ChangeNotifier {
   /// HMI 控制器：
-  /// - 管理串口连接
+  /// - 管理双串口通道（端口 A / 端口 B）
+  /// - 每个通道独立连接、独立 CRC 算法配置
   /// - 管理命令发送与自动重发
   /// - 处理字节流拆包与响应匹配
-  HmiController(this._transport) {
-    _subscription = _transport.incomingBytes.listen(_onIncomingBytes);
+  HmiController(this._transportA, {SerialTransport? transportB})
+    : _transportB = transportB ?? SerialTransportDummy(),
+      _portAConfig = HmiPortConfig(label: '端口 A（主控协议）'),
+      _portBConfig = HmiPortConfig(label: '端口 B（打包机直连）') {
+    _channelA = _PortChannel(_transportA, () => _portAConfig);
+    _channelB = _PortChannel(_transportB, () => _portBConfig);
+    _subscriptionA = _transportA.incomingBytes.listen(
+      (bytes) => _onIncomingBytes(bytes, _channelA),
+    );
+    if (transportB != null) {
+      _subscriptionB = _transportB.incomingBytes.listen(
+        (bytes) => _onIncomingBytes(bytes, _channelB),
+      );
+    }
   }
 
-  final SerialTransport _transport;
-  final List<int> _rxBuffer = <int>[];
-  final List<HmiLogEntry> _logs = <HmiLogEntry>[];
-  final List<_FrameWaiter> _waiters = <_FrameWaiter>[];
+  final SerialTransport _transportA;
+  final SerialTransport _transportB;
+  late final _PortChannel _channelA;
+  late final _PortChannel _channelB;
 
-  StreamSubscription<Uint8List>? _subscription;
+  StreamSubscription<Uint8List>? _subscriptionA;
+  StreamSubscription<Uint8List>? _subscriptionB;
+
+  final List<HmiLogEntry> _logs = <HmiLogEntry>[];
+
   Future<void> _txChain = Future<void>.value();
 
-  String? _selectedPort;
-  int _baudRate = 115200;
+  HmiPortConfig _portAConfig;
+  HmiPortConfig _portBConfig;
   String? _statusMessage;
   HmiRetryPolicy _retryPolicy = const HmiRetryPolicy();
 
-  List<String> ports = <String>[];
+  List<String> _portsA = <String>[];
+  List<String> _portsB = <String>[];
 
-  bool get isConnected => _transport.isConnected;
-  int get baudRate => _baudRate;
-  String? get selectedPort => _selectedPort;
+  // ────────────── 端口访问器 ──────────────
+
+  bool get isConnectedA => _transportA.isConnected;
+  bool get isConnectedB => _transportB.isConnected;
+  bool get isConnected => isConnectedA || isConnectedB;
+
+  HmiPortConfig get portAConfig => _portAConfig;
+  HmiPortConfig get portBConfig => _portBConfig;
+  List<String> get portsA => _portsA;
+  List<String> get portsB => _portsB;
+
+  /// 向后兼容：返回端口 A 的波特率。
+  int get baudRate => _portAConfig.baudRate;
+
+  /// 向后兼容：返回端口 A 的串口名称。
+  String? get selectedPort => _portAConfig.portName;
+
   String? get statusMessage => _statusMessage;
   HmiRetryPolicy get retryPolicy => _retryPolicy;
   List<HmiLogEntry> get logs => List<HmiLogEntry>.unmodifiable(_logs);
 
-  void setPort(String? value) {
-    _selectedPort = value;
+  // ────────────── 端口 A 配置 ──────────────
+
+  void setPortA(String? value) {
+    _portAConfig = _portAConfig.copyWith(portName: value);
     notifyListeners();
   }
 
-  void setBaudRate(int value) {
-    _baudRate = value;
+  void setBaudRateA(int value) {
+    _portAConfig = _portAConfig.copyWith(baudRate: value);
     notifyListeners();
   }
+
+  void setCrcAlgorithmA(CrcAlgorithm algo) {
+    _portAConfig = _portAConfig.copyWith(crcAlgorithm: algo);
+    _statusMessage = '端口 A CRC 算法: ${algo.displayName}';
+    notifyListeners();
+  }
+
+  // ────────────── 端口 B 配置 ──────────────
+
+  void setPortB(String? value) {
+    _portBConfig = _portBConfig.copyWith(portName: value);
+    notifyListeners();
+  }
+
+  void setBaudRateB(int value) {
+    _portBConfig = _portBConfig.copyWith(baudRate: value);
+    notifyListeners();
+  }
+
+  void setCrcAlgorithmB(CrcAlgorithm algo) {
+    _portBConfig = _portBConfig.copyWith(crcAlgorithm: algo);
+    _statusMessage = '端口 B CRC 算法: ${algo.displayName}';
+    notifyListeners();
+  }
+
+  // ────────────── 通用 ──────────────
 
   void updateRetryPolicy(HmiRetryPolicy policy) {
     _retryPolicy = policy;
@@ -107,50 +195,124 @@ class HmiController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> refreshPorts() async {
+  // ────────────── 端口 A 连接管理 ──────────────
+
+  Future<void> refreshPortsA() async {
     try {
-      ports = await _transport.availablePorts();
-      if (ports.isNotEmpty &&
-          (selectedPort == null || !ports.contains(selectedPort))) {
-        _selectedPort = ports.first;
+      _portsA = await _transportA.availablePorts();
+      if (_portsA.isNotEmpty &&
+          (_portAConfig.portName == null ||
+              !_portsA.contains(_portAConfig.portName))) {
+        _portAConfig = _portAConfig.copyWith(portName: _portsA.first);
       }
-      _statusMessage = ports.isEmpty ? '未发现串口设备' : '已刷新串口列表';
+      _statusMessage = _portsA.isEmpty ? '端口 A: 未发现串口设备' : '已刷新串口 A 列表';
     } catch (error) {
-      _statusMessage = '串口扫描失败: $error';
+      _statusMessage = '端口 A 扫描失败: $error';
     }
     notifyListeners();
   }
 
-  Future<void> connectOrDisconnect() async {
-    if (_transport.isConnected) {
-      await _transport.disconnect();
-      _statusMessage = '串口已断开';
-      notifyListeners();
-      return;
-    }
-
-    final port = _selectedPort;
-    if (port == null || port.isEmpty) {
-      _statusMessage = '请先选择串口';
-      notifyListeners();
-      return;
-    }
-
+  Future<void> refreshPortsB() async {
     try {
-      await _transport.connect(portName: port, baudRate: _baudRate);
-      _statusMessage = '已连接: $port @ $_baudRate';
+      _portsB = await _transportB.availablePorts();
+      if (_portsB.isNotEmpty &&
+          (_portBConfig.portName == null ||
+              !_portsB.contains(_portBConfig.portName))) {
+        _portBConfig = _portBConfig.copyWith(portName: _portsB.first);
+      }
+      _statusMessage = _portsB.isEmpty ? '端口 B: 未发现串口设备' : '已刷新串口 B 列表';
+    } catch (error) {
+      _statusMessage = '端口 B 扫描失败: $error';
+    }
+    notifyListeners();
+  }
+
+  Future<void> refreshPorts() async {
+    await Future.wait(<Future<void>>[refreshPortsA(), refreshPortsB()]);
+  }
+
+  Future<void> connectPortA() async {
+    final port = _portAConfig.portName;
+    if (port == null || port.isEmpty) {
+      _statusMessage = '端口 A: 请先选择串口';
+      notifyListeners();
+      return;
+    }
+    try {
+      await _transportA.connect(
+        portName: port,
+        baudRate: _portAConfig.baudRate,
+      );
+      _statusMessage = '端口 A 已连接: $port @ ${_portAConfig.baudRate}';
       notifyListeners();
     } catch (error) {
-      _statusMessage = '连接失败: $error';
+      _statusMessage = '端口 A 连接失败: $error';
       notifyListeners();
     }
   }
 
+  Future<void> connectPortB() async {
+    if (_transportB is SerialTransportDummy) {
+      _statusMessage = '端口 B: 未提供第二个串口实例';
+      notifyListeners();
+      return;
+    }
+    final port = _portBConfig.portName;
+    if (port == null || port.isEmpty) {
+      _statusMessage = '端口 B: 请先选择串口';
+      notifyListeners();
+      return;
+    }
+    try {
+      await _transportB.connect(
+        portName: port,
+        baudRate: _portBConfig.baudRate,
+      );
+      _statusMessage = '端口 B 已连接: $port @ ${_portBConfig.baudRate}';
+      notifyListeners();
+    } catch (error) {
+      _statusMessage = '端口 B 连接失败: $error';
+      notifyListeners();
+    }
+  }
+
+  Future<void> disconnectPortA() async {
+    await _transportA.disconnect();
+    _statusMessage = '端口 A 已断开';
+    notifyListeners();
+  }
+
+  Future<void> disconnectPortB() async {
+    await _transportB.disconnect();
+    _statusMessage = '端口 B 已断开';
+    notifyListeners();
+  }
+
+  /// 向后兼容：连接/断开端口 A。
+  Future<void> connectOrDisconnect() async {
+    if (_transportA.isConnected) {
+      await disconnectPortA();
+    } else {
+      await connectPortA();
+    }
+  }
+
+  // ────────────── 命令执行 ──────────────
+
+  /// 执行命令，可选择使用哪个端口通道。
+  ///
+  /// [usePortB] 为 true 时使用端口 B，否则使用端口 A（默认）。
   Future<CommandExecutionResult> runCommand(
     HmiCommandRequest request, {
     HmiRetryPolicy? policy,
+    bool usePortB = false,
   }) async {
-    if (!_transport.isConnected) {
+    final channel = usePortB ? _channelB : _channelA;
+    final transport = channel.transport;
+    final config = channel.config;
+    final portLabel = config.label;
+
+    if (!transport.isConnected) {
       final result = const CommandExecutionResult(
         success: false,
         message: '串口未连接',
@@ -168,15 +330,29 @@ class HmiController extends ChangeNotifier {
       message: '执行失败',
     );
 
+    // 使用通道对应的 CRC 算法构建帧
+    final frameWithCrc = HmiFrame(
+      address: request.frame.address,
+      function: request.frame.function,
+      data: request.frame.data.toList(),
+      crcAlgorithm: config.crcAlgorithm,
+    );
+
     await _txChain;
     _txChain = () async {
       for (var attempt = 1; attempt <= totalAttempts; attempt++) {
-        final waiter = _createWaiter(request.expectedFunctions);
+        final waiter = _createWaiter(channel, request.expectedFunctions);
         try {
-          await _transport.write(request.frame.encode());
-          _appendLog('TX', request.frame, note: request.note, attempt: attempt);
+          await transport.write(frameWithCrc.encode());
+          _appendLog(
+            'TX',
+            frameWithCrc,
+            note: request.note,
+            attempt: attempt,
+            portLabel: portLabel,
+          );
         } catch (error) {
-          _removeWaiter(waiter);
+          _removeWaiter(channel, waiter);
           finalResult = CommandExecutionResult(
             success: false,
             message: '发送失败: $error',
@@ -198,7 +374,7 @@ class HmiController extends ChangeNotifier {
           );
           break;
         } on TimeoutException {
-          _removeWaiter(waiter);
+          _removeWaiter(channel, waiter);
           if (attempt >= totalAttempts) {
             finalResult = CommandExecutionResult(
               success: false,
@@ -210,7 +386,7 @@ class HmiController extends ChangeNotifier {
           }
           await Future<void>.delayed(Duration(milliseconds: p.retryIntervalMs));
         } catch (error) {
-          _removeWaiter(waiter);
+          _removeWaiter(channel, waiter);
           finalResult = CommandExecutionResult(
             success: false,
             message: '${request.label}失败: $error',
@@ -226,6 +402,24 @@ class HmiController extends ChangeNotifier {
     await _txChain;
     return finalResult;
   }
+
+  /// 向后兼容：使用端口 A 发送命令。
+  Future<CommandExecutionResult> runCommandPortA(
+    HmiCommandRequest request, {
+    HmiRetryPolicy? policy,
+  }) {
+    return runCommand(request, policy: policy, usePortB: false);
+  }
+
+  /// 使用端口 B 发送命令。
+  Future<CommandExecutionResult> runCommandPortB(
+    HmiCommandRequest request, {
+    HmiRetryPolicy? policy,
+  }) {
+    return runCommand(request, policy: policy, usePortB: true);
+  }
+
+  // ────────────── 高层命令（端口 A） ──────────────
 
   Future<CommandExecutionResult> sendOrder({
     required int orderId,
@@ -408,6 +602,8 @@ class HmiController extends ChangeNotifier {
     );
   }
 
+  // ────────────── 打包机命令（端口 B ─ 若端口 B 未连接则回退到端口 A） ──────────────
+
   Future<CommandExecutionResult> sendPackerControl({
     required int nodeAddress,
     required int action,
@@ -507,8 +703,6 @@ class HmiController extends ChangeNotifier {
   }
 
   /// 读取单个运行时参数。
-  ///
-  /// 返回响应的 Z4~Z7 合成 uint32 值; 失败返回 null。
   Future<int?> sendParamRead({
     required int nodeAddress,
     required int paramId,
@@ -520,13 +714,11 @@ class HmiController extends ChangeNotifier {
     );
     if (!result.success || result.response == null) return null;
     final d = result.response!.data;
-    if (d[0] != 0x00) return null; // 结果码非 OK
+    if (d[0] != 0x00) return null;
     return d[3] | (d[4] << 8) | (d[5] << 16) | (d[6] << 24);
   }
 
   /// 写入单个运行时参数 (仅 RAM, 不自动保存)。
-  ///
-  /// 返回回读值; 失败返回 null。
   Future<int?> sendParamWrite({
     required int nodeAddress,
     required int paramId,
@@ -536,12 +728,12 @@ class HmiController extends ChangeNotifier {
       HmiPackerFunction.paramWrite,
       nodeAddress: nodeAddress,
       payload: <int>[
-        paramId & 0xFF,       // Y1 = 参数ID
-        4,                     // Y2 = 数据类型(uint32)
-        value & 0xFF,          // Y3 = L0
-        (value >> 8) & 0xFF,   // Y4 = L1
-        (value >> 16) & 0xFF,  // Y5 = L2
-        (value >> 24) & 0xFF,  // Y6 = L3
+        paramId & 0xFF,
+        4,
+        value & 0xFF,
+        (value >> 8) & 0xFF,
+        (value >> 16) & 0xFF,
+        (value >> 24) & 0xFF,
       ],
     );
     if (!result.success || result.response == null) return null;
@@ -561,9 +753,6 @@ class HmiController extends ChangeNotifier {
         result.response!.data[0] == 0x00;
   }
 
-  /// 加载/恢复运行时参数。
-  ///
-  /// [action]: 0=从EEPROM加载, 1=恢复默认值。
   Future<bool> sendParamLoad({
     required int nodeAddress,
     required int action,
@@ -583,6 +772,8 @@ class HmiController extends ChangeNotifier {
     required int nodeAddress,
     List<int> payload = const <int>[],
   }) {
+    // 打包机命令默认走端口 B（若端口 B 未连接则回退到端口 A）
+    final usePortB = _transportB.isConnected;
     return runCommand(
       HmiCommandRequest(
         command: HmiCommandCode.deviceTest,
@@ -597,6 +788,7 @@ class HmiController extends ChangeNotifier {
         note: '打包机节点0x${toHex2(nodeAddress)}',
         label: function.label,
       ),
+      usePortB: usePortB,
     );
   }
 
@@ -606,6 +798,8 @@ class HmiController extends ChangeNotifier {
     required List<int> payload,
     Set<int>? expectedFunctions,
     String? note,
+    bool usePortB = false,
+    CrcAlgorithm? crcAlgorithm,
   }) {
     return runCommand(
       HmiCommandRequest(
@@ -614,6 +808,7 @@ class HmiController extends ChangeNotifier {
           address: address,
           function: functionCode,
           data: payload,
+          crcAlgorithm: crcAlgorithm ?? CrcAlgorithm.modbus,
         ),
         expectedFunctions:
             expectedFunctions ??
@@ -621,6 +816,7 @@ class HmiController extends ChangeNotifier {
             <int>{functionCode, 0x0A},
         note: note ?? '自定义帧',
       ),
+      usePortB: usePortB,
     );
   }
 
@@ -629,15 +825,17 @@ class HmiController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _onIncomingBytes(Uint8List bytes) {
-    _rxBuffer.addAll(bytes);
-    _consumeFrames();
+  // ────────────── 内部处理 ──────────────
+
+  void _onIncomingBytes(Uint8List bytes, _PortChannel channel) {
+    channel.rxBuffer.addAll(bytes);
+    _consumeFrames(channel);
   }
 
-  void _consumeFrames() {
-    // 从缓存中持续提取完整20字节协议帧，容忍粘包与脏数据。
-    while (_rxBuffer.length >= HmiFrame.frameLength) {
-      final start = _rxBuffer.indexWhere(
+  void _consumeFrames(_PortChannel channel) {
+    final crcAlgo = channel.config.crcAlgorithm;
+    while (channel.rxBuffer.length >= HmiFrame.frameLength) {
+      final start = channel.rxBuffer.indexWhere(
         (v) =>
             v == HmiFrame.appRequestAddress ||
             v == HmiFrame.appResponseAddress ||
@@ -646,49 +844,50 @@ class HmiController extends ChangeNotifier {
             v == 0xFF,
       );
       if (start < 0) {
-        _rxBuffer.clear();
+        channel.rxBuffer.clear();
         return;
       }
       if (start > 0) {
-        _rxBuffer.removeRange(0, start);
+        channel.rxBuffer.removeRange(0, start);
       }
-      if (_rxBuffer.length < HmiFrame.frameLength) {
+      if (channel.rxBuffer.length < HmiFrame.frameLength) {
         return;
       }
-      final packet = _rxBuffer.sublist(0, HmiFrame.frameLength);
-      final decodedFrame = HmiFrame.tryDecode(packet);
+      final packet = channel.rxBuffer.sublist(0, HmiFrame.frameLength);
+      final decodedFrame = HmiFrame.tryDecode(packet, crcAlgorithm: crcAlgo);
       if (decodedFrame == null) {
-        _rxBuffer.removeAt(0);
+        channel.rxBuffer.removeAt(0);
         continue;
       }
-      _appendLog('RX', decodedFrame);
-      _dispatchWaiters(decodedFrame);
-      _statusMessage = '收到响应: ${decodeHmiFrame(decodedFrame).summary}';
-      _rxBuffer.removeRange(0, HmiFrame.frameLength);
+      _appendLog('RX', decodedFrame, portLabel: channel.config.label);
+      _dispatchWaiters(channel, decodedFrame);
+      _statusMessage =
+          '收到响应（${channel.config.label}）: ${decodeHmiFrame(decodedFrame).summary}';
+      channel.rxBuffer.removeRange(0, HmiFrame.frameLength);
       notifyListeners();
     }
   }
 
-  _FrameWaiter _createWaiter(Set<int> expectedFunctions) {
+  _FrameWaiter _createWaiter(_PortChannel channel, Set<int> expectedFunctions) {
     final waiter = _FrameWaiter(expectedFunctions);
-    _waiters.add(waiter);
+    channel.waiters.add(waiter);
     return waiter;
   }
 
-  void _dispatchWaiters(HmiFrame frame) {
-    final matched = _waiters
+  void _dispatchWaiters(_PortChannel channel, HmiFrame frame) {
+    final matched = channel.waiters
         .where((w) => w.expectedFunctions.contains(frame.function))
         .toList();
     for (final waiter in matched) {
       if (!waiter.completer.isCompleted) {
         waiter.completer.complete(frame);
       }
-      _waiters.remove(waiter);
+      channel.waiters.remove(waiter);
     }
   }
 
-  void _removeWaiter(_FrameWaiter waiter) {
-    _waiters.remove(waiter);
+  void _removeWaiter(_PortChannel channel, _FrameWaiter waiter) {
+    channel.waiters.remove(waiter);
   }
 
   void _appendLog(
@@ -696,6 +895,7 @@ class HmiController extends ChangeNotifier {
     HmiFrame frame, {
     String? note,
     int? attempt,
+    String portLabel = '',
   }) {
     _logs.insert(
       0,
@@ -706,6 +906,7 @@ class HmiController extends ChangeNotifier {
         decoded: decodeHmiFrame(frame),
         note: note,
         attempt: attempt,
+        portLabel: portLabel,
       ),
     );
     if (_logs.length > 800) {
@@ -715,8 +916,35 @@ class HmiController extends ChangeNotifier {
 
   @override
   void dispose() {
-    _subscription?.cancel();
-    _transport.disconnect();
+    _subscriptionA?.cancel();
+    _subscriptionB?.cancel();
+    _channelA.dispose();
+    _channelB.dispose();
     super.dispose();
+  }
+}
+
+/// 空串口实现，用于未提供第二个串口时的占位。
+class SerialTransportDummy implements SerialTransport {
+  @override
+  Future<List<String>> availablePorts() async => <String>[];
+
+  @override
+  Future<void> connect({String? portName, int baudRate = 115200}) async {
+    throw StateError('未提供串口 B 实现');
+  }
+
+  @override
+  Future<void> disconnect() async {}
+
+  @override
+  bool get isConnected => false;
+
+  @override
+  Stream<Uint8List> get incomingBytes => const Stream<Uint8List>.empty();
+
+  @override
+  Future<void> write(Uint8List bytes) async {
+    throw StateError('未提供串口 B 实现');
   }
 }

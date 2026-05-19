@@ -1,66 +1,111 @@
 {
   "version": "0.2.0",
   "configurations": [
+    // ═══════════════════════════════════════════
+    //  Flutter Linux (Wayland / X11)
+    // ═══════════════════════════════════════════
     {
-      "name": "Flutter Windows (Debug)",
+      "name": "Flutter Linux (Debug)",
       "request": "launch",
       "type": "dart",
       "program": "lib/main.dart",
       "flutterMode": "debug",
-      "deviceId": "windows",
-      "preLaunchTask": "Flutter: pub get"
+      "deviceId": "linux",
+      "preLaunchTask": "Flutter: pub get",
+      "args": [
+        "--enable-wayland-ime" // Wayland IME 支持
+      ]
     },
     {
-      "name": "Flutter Windows (Profile)",
+      "name": "Flutter Linux (Profile)",
       "request": "launch",
       "type": "dart",
       "program": "lib/main.dart",
       "flutterMode": "profile",
-      "deviceId": "windows",
-      "preLaunchTask": "Flutter: pub get"
+      "deviceId": "linux",
+      "preLaunchTask": "Flutter: pub get",
+      "args": [
+        "--enable-wayland-ime"
+      ]
     },
     {
-      "name": "Flutter Windows (Release)",
+      "name": "Flutter Linux (Release)",
       "request": "launch",
       "type": "dart",
       "program": "lib/main.dart",
       "flutterMode": "release",
-      "deviceId": "windows",
+      "deviceId": "linux",
       "preLaunchTask": "Flutter: pub get"
     },
+    // ═══════════════════════════════════════════
+    //  Native ELF Debug (Linux GDB/LLDB)
+    // ═══════════════════════════════════════════
     {
-      "name": "Native EXE Debug (build/windows/x64/runner/Debug)",
-      "type": "cppvsdbg",
+      "name": "Native ELF Debug (build/linux/x64/debug)",
+      "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/build/windows/x64/runner/Debug/hmi_host.exe",
+      "program": "${workspaceFolder}/build/linux/x64/debug/bundle/hmi_host",
       "cwd": "${workspaceFolder}",
       "stopAtEntry": false,
-      "console": "integratedTerminal",
-      "preLaunchTask": "Flutter: build windows debug"
+      "terminal": "integrated",
+      "preLaunchTask": "Flutter: build linux debug",
+      "sourceLanguages": [
+        "dart",
+        "cpp"
+      ]
     },
     {
-      "name": "Native EXE Debug (build/runner)",
-      "type": "cppvsdbg",
+      "name": "Native ELF Debug (build/runner)",
+      "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/build/runner/hmi_host.exe",
+      "program": "${workspaceFolder}/build/runner/hmi_host",
       "cwd": "${workspaceFolder}",
       "stopAtEntry": false,
-      "console": "integratedTerminal",
+      "terminal": "integrated",
       "preLaunchTask": "CMake: Configure+Build (debug)"
     },
     {
-      "name": "Attach To Running hmi_host.exe",
-      "type": "cppvsdbg",
+      "name": "Attach to Running hmi_host",
+      "type": "lldb",
       "request": "attach",
-      "processId": "${command:pickProcess}"
+      "pid": "${command:pickProcess}",
+      "cwd": "${workspaceFolder}"
+    },
+    // ═══════════════════════════════════════════
+    //  Flutter Linux with Wayland-specific flags
+    // ═══════════════════════════════════════════
+    {
+      "name": "Flutter Linux (Wayland Debug)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "flutterMode": "debug",
+      "deviceId": "linux",
+      "preLaunchTask": "Flutter: pub get",
+      "args": [
+        "--enable-wayland-ime",
+        "--disable-gpu" // Wayland 下 GPU 加速有问题时回退软件渲染
+      ]
+    },
+    {
+      "name": "Flutter Linux (Wayland — software render)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "flutterMode": "debug",
+      "deviceId": "linux",
+      "preLaunchTask": "Flutter: pub get",
+      "env": {
+        "FLUTTER_DISABLE_GPU": "1" // 强制软件渲染，排查 Wayland GPU 异常
+      }
     }
   ],
   "compounds": [
     {
       "name": "Flutter Run + Attach Native",
       "configurations": [
-        "Flutter Windows (Debug)",
-        "Attach To Running hmi_host.exe"
+        "Flutter Linux (Debug)",
+        "Attach to Running hmi_host"
       ]
     }
   ]

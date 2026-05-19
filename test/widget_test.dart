@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hmi_host/core/serial/serial_transport.dart';
 import 'package:hmi_host/features/hmi/hmi_controller.dart';
-import 'package:hmi_host/main.dart';
+import 'package:hmi_host/main.dart' show HmiHostApp;
 
 class _FakeSerialTransport implements SerialTransport {
   final Stream<Uint8List> _stream = const Stream<Uint8List>.empty();

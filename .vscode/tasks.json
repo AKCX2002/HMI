@@ -1,6 +1,7 @@
 {
   "version": "2.0.0",
   "tasks": [
+    // ────────────── 依赖 ──────────────
     {
       "label": "Flutter: pub get",
       "type": "shell",
@@ -22,6 +23,7 @@
       "group": "build",
       "problemMatcher": []
     },
+    // ────────────── 分析 & 测试 ──────────────
     {
       "label": "Flutter: analyze",
       "type": "shell",
@@ -42,42 +44,76 @@
       "group": "test",
       "problemMatcher": "$dart"
     },
+    // ────────────── Linux 运行/构建 ──────────────
     {
-      "label": "Flutter: run windows",
+      "label": "Flutter: run linux",
       "type": "shell",
       "command": "flutter",
       "args": [
         "run",
         "-d",
-        "windows"
+        "linux",
+        "--enable-wayland-ime"
       ],
       "group": "build",
-      "problemMatcher": []
+      "problemMatcher": [],
+      "detail": "Run Flutter Linux (Wayland IME enabled)"
     },
     {
-      "label": "Flutter: build windows debug",
+      "label": "Flutter: build linux debug",
       "type": "shell",
       "command": "flutter",
       "args": [
         "build",
-        "windows",
+        "linux",
         "--debug"
       ],
       "group": "build",
       "problemMatcher": []
     },
     {
-      "label": "Flutter: build windows release",
+      "label": "Flutter: build linux profile",
       "type": "shell",
       "command": "flutter",
       "args": [
         "build",
-        "windows",
+        "linux",
+        "--profile"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Flutter: build linux release",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "build",
+        "linux",
         "--release"
       ],
       "group": "build",
       "problemMatcher": []
     },
+    {
+      "label": "Flutter: run linux (software render)",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "run",
+        "-d",
+        "linux"
+      ],
+      "options": {
+        "env": {
+          "FLUTTER_DISABLE_GPU": "1"
+        }
+      },
+      "group": "build",
+      "problemMatcher": [],
+      "detail": "Run Flutter Linux with software rendering (Wayland GPU fallback)"
+    },
+    // ────────────── 交叉平台构建（保留） ──────────────
     {
       "label": "Flutter: build web release",
       "type": "shell",
@@ -102,110 +138,75 @@
       "group": "build",
       "problemMatcher": []
     },
+    // ────────────── Wayland 调试辅助 ──────────────
     {
-      "label": "Flutter: build appbundle release",
+      "label": "Check Wayland environment",
       "type": "shell",
-      "command": "flutter",
-      "args": [
-        "build",
-        "appbundle",
-        "--release"
-      ],
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "Flutter: build linux release",
-      "type": "shell",
-      "command": "flutter",
-      "args": [
-        "build",
-        "linux",
-        "--release"
-      ],
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "Flutter: build macos release",
-      "type": "shell",
-      "command": "flutter",
-      "args": [
-        "build",
-        "macos",
-        "--release"
-      ],
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "Flutter: build ios release",
-      "type": "shell",
-      "command": "flutter",
-      "args": [
-        "build",
-        "ios",
-        "--release",
-        "--no-codesign"
-      ],
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "CMake: Configure (win-debug preset)",
-      "type": "shell",
-      "command": "cmake",
-      "args": [
-        "--preset",
-        "win-debug"
-      ],
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "CMake: Build (debug preset)",
-      "type": "shell",
-      "command": "cmake",
-      "args": [
-        "--build",
-        "--preset",
-        "build-debug"
-      ],
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "CMake: Configure+Build (debug)",
-      "dependsOrder": "sequence",
-      "dependsOn": [
-        "CMake: Configure (win-debug preset)",
-        "CMake: Build (debug preset)"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "Windows: Enable Developer Mode (open settings)",
-      "type": "shell",
-      "command": "start",
-      "args": [
-        "ms-settings:developers"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "Flutter: build all release",
-      "dependsOrder": "sequence",
-      "dependsOn": [
-        "Flutter: pub get",
-        "Flutter: build windows release",
-        "Flutter: build web release",
-        "Flutter: build apk release",
-        "Flutter: build appbundle release",
-        "Flutter: build linux release",
-        "Flutter: build macos release",
-        "Flutter: build ios release"
-      ],
-      "problemMatcher": []
+      "command": "echo 'WAYLAND_DISPLAY=$WAYLAND_DISPLAY' && echo 'XDG_SESSION_TYPE=$XDG_SESSION_TYPE' && echo 'FLUTTER_DISABLE_GPU=$FLUTTER_DISABLE_GPU' && ldd --version 2>&1 | head -1",
+      "group": "test",
+      "problemMatcher": [],
+      "detail": "Print Wayland/GPU environment variables for debugging"
     }
   ]
+}
+      "group": "build",
+"problemMatcher": []
+},
+{
+"label": "CMake: Configure (win-debug preset)",
+"type": "shell",
+"command": "cmake",
+"args": [
+  "--preset",
+  "win-debug"
+],
+"group": "build",
+"problemMatcher": []
+},
+{
+"label": "CMake: Build (debug preset)",
+"type": "shell",
+"command": "cmake",
+"args": [
+  "--build",
+  "--preset",
+  "build-debug"
+],
+"group": "build",
+"problemMatcher": []
+},
+{
+"label": "CMake: Configure+Build (debug)",
+"dependsOrder": "sequence",
+"dependsOn": [
+  "CMake: Configure (win-debug preset)",
+  "CMake: Build (debug preset)"
+],
+"problemMatcher": []
+},
+{
+"label": "Windows: Enable Developer Mode (open settings)",
+"type": "shell",
+"command": "start",
+"args": [
+  "ms-settings:developers"
+],
+"problemMatcher": []
+},
+{
+"label": "Flutter: build all release",
+"dependsOrder": "sequence",
+"dependsOn": [
+  "Flutter: pub get",
+  "Flutter: build windows release",
+  "Flutter: build web release",
+  "Flutter: build apk release",
+  "Flutter: build appbundle release",
+  "Flutter: build linux release",
+  "Flutter: build macos release",
+  "Flutter: build ios release"
+],
+"problemMatcher": []
+}
+]
 }
