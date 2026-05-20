@@ -138,20 +138,15 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   }
 
   Future<void> _runCommand(
-    Future<CommandExecutionResult> Function() action,
-    String successText,
-  ) async {
+    Future<CommandExecutionResult> Function() action, [
+    String? successText,
+  ]) async {
     final result = await action();
-    if (!mounted) {
-      return;
-    }
-    final ok = result.success;
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        backgroundColor: ok ? const Color(0xFF2E7D32) : const Color(0xFF9F2D2D),
-        content: Text(
-          ok ? '$successText（尝试${result.attempts}次）' : result.message,
-        ),
+        backgroundColor: result.success ? const Color(0xFF2E7D32) : const Color(0xFF9F2D2D),
+        content: Text(result.message),
       ),
     );
   }

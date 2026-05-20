@@ -57,13 +57,6 @@ class CommandExecutionResult {
   final int? attempts;
 }
 
-class _FrameWaiter {
-  _FrameWaiter(this.expectedFunctions);
-
-  final Set<int> expectedFunctions;
-  final Completer<HmiFrame> completer = Completer<HmiFrame>();
-}
-
 class _DgusFrame {
   _DgusFrame({required this.command, required this.data});
   final int command;
@@ -83,7 +76,6 @@ class _PortChannel {
   final SerialTransport transport;
   final List<int> rxBuffer = <int>[];
   final List<int> dgusRxBuffer = <int>[];
-  final List<_FrameWaiter> waiters = <_FrameWaiter>[];
   final List<_DgusWaiter> dgusWaiters = <_DgusWaiter>[];
   StreamSubscription<Uint8List>? subscription;
 
@@ -98,7 +90,6 @@ class _PortChannel {
     transport.disconnect();
     rxBuffer.clear();
     dgusRxBuffer.clear();
-    waiters.clear();
     dgusWaiters.clear();
   }
 }
@@ -312,14 +303,14 @@ class HmiController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 清理通道中所有未完成的等待者，防止断开后内存泄漏。
+  /// 清理通道中所有未完成的 DGUS 等待者，防止断开后内存泄漏。
   void _clearWaiters(_PortChannel channel) {
-    for (final w in channel.waiters) {
+    for (final w in channel.dgusWaiters) {
       if (!w.completer.isCompleted) {
         w.completer.completeError(StateError('串口已断开'));
       }
     }
-    channel.waiters.clear();
+    channel.dgusWaiters.clear();
   }
 
   /// 向后兼容：连接/断开端口 A。
@@ -333,12 +324,12 @@ class HmiController extends ChangeNotifier {
 
   // ────────────── 命令执行 ──────────────
 
-  /// 执行命令，可选择使用哪个端口通道。
+  /// 发送命令帧，不等待响应。
   ///
+  /// 响应由流监听实时解析并记入日志。
   /// [usePortB] 为 true 时使用端口 B，否则使用端口 A（默认）。
   Future<CommandExecutionResult> runCommand(
     HmiCommandRequest request, {
-    HmiRetryPolicy? policy,
     bool usePortB = false,
   }) async {
     final channel = usePortB ? _channelB : _channelA;
@@ -356,13 +347,6 @@ class HmiController extends ChangeNotifier {
       return result;
     }
 
-    final start = DateTime.now();
-    CommandExecutionResult finalResult = const CommandExecutionResult(
-      success: false,
-      message: '执行失败',
-    );
-
-    // 使用帧自身指定的 CRC 算法构建帧（尊重调用者语义）。
     final frameWithCrc = HmiFrame(
       address: request.frame.address,
       function: request.frame.function,
@@ -370,93 +354,24 @@ class HmiController extends ChangeNotifier {
       crcAlgorithm: request.frame.crcAlgorithm,
     );
 
-    // 等待前一条命令完成（忽略前条错误，避免链断裂死锁）
-    try {
-      await _txChain;
-    } catch (_) {
-      // 前一条命令异常，继续执行当前命令
-    }
-    _txChain = () async {
-      try {
-        final waiter = _createWaiter(channel, request.expectedFunctions);
-        try {
-          await transport.write(frameWithCrc.encode());
-          _appendLog(
-            'TX',
-            frameWithCrc,
-            note: request.note,
-            attempt: 1,
-            portLabel: portLabel,
-          );
-        } catch (error) {
-          _removeWaiter(channel, waiter);
-          if (!waiter.completer.isCompleted) {
-            waiter.completer.completeError(error);
-          }
-          finalResult = CommandExecutionResult(
-            success: false,
-            message: '发送失败: $error',
-          );
-          return;
-        }
-
-        try {
-          final response = await waiter.completer.future;
-          final elapsed = DateTime.now().difference(start);
-          final function = request.frame.function & 0xFF;
-          final isPackerResponse = function >= 0x40 && function <= 0x53;
-          if (isPackerResponse) {
-            final resultCode = response.data[0] & 0xFF;
-            if (resultCode != 0x00) {
-              finalResult = CommandExecutionResult(
-                success: false,
-                message:
-                    '${request.label}失败: ${packerResultName(resultCode)}'
-                    '(0x${toHex2(resultCode)})',
-                response: response,
-                elapsed: elapsed,
-                attempts: 1,
-              );
-              return;
-            }
-          }
-          finalResult = CommandExecutionResult(
-            success: true,
-            message: '${request.label}成功',
-            response: response,
-            elapsed: elapsed,
-            attempts: 1,
-          );
-        } catch (error) {
-          _removeWaiter(channel, waiter);
-          if (!waiter.completer.isCompleted) {
-            waiter.completer.completeError(error);
-          }
-          finalResult = CommandExecutionResult(
-            success: false,
-            message: '${request.label}失败: $error',
-          );
-        }
-      } catch (error) {
-        finalResult = CommandExecutionResult(
-          success: false,
-          message: '命令执行异常: $error',
-        );
-      } finally {
-        _statusMessage = finalResult.message;
-        notifyListeners();
-      }
-    }();
+    // 串行化写入，避免并发写串口
+    try { await _txChain; } catch (_) {}
+    final done = Completer<void>();
+    _txChain = done.future;
 
     try {
-      await _txChain;
+      await transport.write(frameWithCrc.encode());
+      _appendLog('TX', frameWithCrc, note: request.note, portLabel: portLabel);
+      _statusMessage = '${request.label}已发送';
+      notifyListeners();
+      done.complete();
+      return CommandExecutionResult(success: true, message: '${request.label}已发送');
     } catch (error) {
-      finalResult = CommandExecutionResult(
-        success: false,
-        message: '命令执行异常: $error',
-      );
+      _statusMessage = '${request.label}发送失败: $error';
+      notifyListeners();
+      done.complete();
+      return CommandExecutionResult(success: false, message: '发送失败: $error');
     }
-    return finalResult;
   }
 
   /// 向后兼容：使用端口 A 发送命令。
@@ -464,7 +379,7 @@ class HmiController extends ChangeNotifier {
     HmiCommandRequest request, {
     HmiRetryPolicy? policy,
   }) {
-    return runCommand(request, policy: policy, usePortB: false);
+    return runCommand(request, usePortB: false);
   }
 
   /// 使用端口 B 发送命令。
@@ -472,7 +387,7 @@ class HmiController extends ChangeNotifier {
     HmiCommandRequest request, {
     HmiRetryPolicy? policy,
   }) {
-    return runCommand(request, policy: policy, usePortB: true);
+    return runCommand(request, usePortB: true);
   }
 
   // ────────────── 打包机命令（usePortB=null 时走自动路由，非 null 时强制指定端口） ──────────────
@@ -991,30 +906,10 @@ class HmiController extends ChangeNotifier {
         continue;
       }
       _appendLog('RX', decodedFrame, portLabel: channel.config.label);
-      _dispatchWaiters(channel, decodedFrame);
       _statusMessage =
           '收到响应（${channel.config.label}）: ${decodeHmiFrame(decodedFrame).summary}';
       channel.rxBuffer.removeRange(0, HmiFrame.frameLength);
       notifyListeners();
-    }
-  }
-
-  _FrameWaiter _createWaiter(_PortChannel channel, Set<int> expectedFunctions) {
-    final waiter = _FrameWaiter(expectedFunctions);
-    channel.waiters.add(waiter);
-    return waiter;
-  }
-
-  /// 将收到的帧分发给第一个匹配功能码的等待者。
-  /// 一帧只分发给一个 waiter，避免并发请求互相吞没。
-  void _dispatchWaiters(_PortChannel channel, HmiFrame frame) {
-    final index = channel.waiters.indexWhere(
-      (w) => w.expectedFunctions.contains(frame.function),
-    );
-    if (index < 0) return;
-    final waiter = channel.waiters.removeAt(index);
-    if (!waiter.completer.isCompleted) {
-      waiter.completer.complete(frame);
     }
   }
 
@@ -1025,10 +920,6 @@ class HmiController extends ChangeNotifier {
     if (!waiter.completer.isCompleted) {
       waiter.completer.complete(frame);
     }
-  }
-
-  void _removeWaiter(_PortChannel channel, _FrameWaiter waiter) {
-    channel.waiters.remove(waiter);
   }
 
   void _appendLog(
