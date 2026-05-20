@@ -883,7 +883,7 @@ class HmiController extends ChangeNotifier {
       hasDgusLogUpdate = _consumeDgusFrames(bytes, channel);
     }
 
-hg    if (hasFrameUpdate || hasDgusLogUpdate) {
+    if (hasFrameUpdate || hasDgusLogUpdate) {
       notifyListeners();
     }
   }
