@@ -78,4 +78,37 @@ void main() {
     await transportA.dispose();
     await transportB.dispose();
   });
+
+  test('端口 B 会记录普通 DGUS 读回应', () async {
+    final transportA = _FakeSerialTransport();
+    final transportB = _FakeSerialTransport();
+    final controller = HmiController(transportA, transportB: transportB);
+
+    transportB.emit(<int>[0x5A, 0xA5, 0x08, 0x83, 0x20, 0x00, 0x02, 0x00, 0x00, 0x30, 0x39]);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.logs, hasLength(1));
+    expect(controller.logs.first.decoded.summary, 'DGUS RX 5A A5 08 83 20 00 02 00 00 30 39');
+
+    controller.dispose();
+    await transportA.dispose();
+    await transportB.dispose();
+  });
+
+  test('端口 B 会同时记录 DGUS 原始回包和日志文本', () async {
+    final transportA = _FakeSerialTransport();
+    final transportB = _FakeSerialTransport();
+    final controller = HmiController(transportA, transportB: transportB);
+
+    transportB.emit(<int>[0x5A, 0xA5, 0x07, 0x82, 0x30, 0x00, 0x48, 0x49, 0x00, 0x00]);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.logs, hasLength(2));
+    expect(controller.logs[1].decoded.summary, 'DGUS RX 5A A5 07 82 30 00 48 49 00 00');
+    expect(controller.logs[0].decoded.summary, 'HI');
+
+    controller.dispose();
+    await transportA.dispose();
+    await transportB.dispose();
+  });
 }

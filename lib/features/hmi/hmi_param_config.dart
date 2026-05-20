@@ -31,7 +31,7 @@ class HmiParamDef {
 const List<HmiParamDef> kParamDefs = <HmiParamDef>[
 
   // ══════════════════════════════════════════════════════════════════
-  //  步进运动参数 (ID 0x10~0x16, DGUS 0x2000~0x200C)
+//  步进运动参数 (ID 0x10~0x17, DGUS 0x2000~0x200E)
   // ══════════════════════════════════════════════════════════════════
   HmiParamDef(
     id: 0x10,
@@ -94,6 +94,15 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     min: 100,
     max: 100000,
     dgusAddr: 0x200C,
+    group: '步进运动参数',
+  ),
+  HmiParamDef(
+    id: 0x17,
+    name: '自检3/4轴测试频率',
+    unit: 'Hz',
+    min: 100,
+    max: 80000,
+    dgusAddr: 0x200E,
     group: '步进运动参数',
   ),
 

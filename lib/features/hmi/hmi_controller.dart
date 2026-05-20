@@ -61,6 +61,8 @@ class _DgusFrame {
   _DgusFrame({required this.command, required this.data});
   final int command;
   final Uint8List data;
+
+  List<int> encode() => <int>[0x5A, 0xA5, data.length + 1, command, ...data];
 }
 
 class _DgusWaiter {
@@ -793,6 +795,7 @@ class HmiController extends ChangeNotifier {
       );
       channel.dgusWaiters.remove(waiter);
       if (frame == null) {
+        _appendDgusLog('DGUS TIMEOUT $txHex', channel.config.label);
         _statusMessage = '$label超时（${_retryPolicy.timeoutMs}ms）';
         notifyListeners();
         return null;
@@ -924,11 +927,13 @@ class HmiController extends ChangeNotifier {
         command: buf[3] & 0xFF,
         data: Uint8List.fromList(buf.sublist(4, frameLen)),
       );
+      final rxHex = frame.encode().map((e) => toHex2(e)).join(' ');
+      _appendDgusLog('DGUS RX $rxHex', channel.config.label);
+      changed = true;
       _dispatchDgusWaiters(channel, frame);
       final decoded = _decodeDgusLogLine(frame);
       if (decoded != null && decoded.isNotEmpty) {
         _appendDgusLog(decoded, channel.config.label);
-        changed = true;
       }
       buf.removeRange(0, frameLen);
     }
