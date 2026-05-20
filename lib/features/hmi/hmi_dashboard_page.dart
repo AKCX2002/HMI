@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../core/protocol/crc_algorithm.dart';
+import '../../util/log_exporter.dart';
 import 'hmi_controller.dart';
 import 'hmi_param_config.dart';
 import 'hmi_protocol.dart';
@@ -1680,6 +1682,64 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     );
   }
 
+  /// 构建日志纯文本。
+  String _buildLogText(HmiController controller) {
+    final buffer = StringBuffer();
+    buffer.writeln('=== HMI 协议日志 ===');
+    buffer.writeln('导出时间: ${DateTime.now()}');
+    buffer.writeln('共 ${controller.logs.length} 条');
+    buffer.writeln('');
+    for (final log in controller.logs) {
+      buffer.writeln(log.pretty);
+    }
+    return buffer.toString();
+  }
+
+  /// 复制全部日志到剪贴板。
+  Future<void> _copyAllLogs(HmiController controller) async {
+    final text = _buildLogText(controller);
+    await Clipboard.setData(ClipboardData(text: text));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('日志已复制到剪贴板'), duration: Duration(seconds: 2)),
+      );
+    }
+  }
+
+  /// 导出日志到文件（PC/Android 保存到文件，Web 回退到剪贴板）。
+  Future<void> _exportLogs(HmiController controller) async {
+    final text = _buildLogText(controller);
+
+    try {
+      final path = await exportLogsToFile(text);
+      if (path == null) {
+        // Web 平台：回退到剪贴板
+        await Clipboard.setData(ClipboardData(text: text));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Web 平台: 日志内容已复制到剪贴板'), duration: Duration(seconds: 2)),
+          );
+        }
+        return;
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('日志已导出: $path'),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      await Clipboard.setData(ClipboardData(text: text));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('文件保存失败 ($e)，日志已复制到剪贴板'), duration: const Duration(seconds: 4)),
+        );
+      }
+    }
+  }
+
   /// 清空日志前确认对话框。
   Future<void> _confirmClearLogs(HmiController controller) async {
     final confirmed = await showDialog<bool>(
@@ -1837,6 +1897,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
 
   /// ── 实时协议日志面板 ──
   Widget _buildLiveLogPanel(HmiController controller) {
+    final hasLogs = controller.logs.isNotEmpty;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -1865,26 +1926,25 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
               ),
               const Spacer(),
               Text(
-                controller.logs.isNotEmpty
-                    ? '共 ${controller.logs.length} 条'
-                    : '',
+                hasLogs ? '共 ${controller.logs.length} 条' : '',
                 style: GoogleFonts.ibmPlexMono(
                   color: const Color(0xFFA7C7EB),
                   fontSize: 11,
                 ),
               ),
-              const SizedBox(width: 8),
-              TextButton.icon(
+              const SizedBox(width: 4),
+              _buildMiniToolButton(
+                icon: Icons.copy_all,
+                label: '复制',
+                enabled: hasLogs,
+                onPressed: () => _copyAllLogs(controller),
+              ),
+              const SizedBox(width: 4),
+              _buildMiniToolButton(
+                icon: Icons.cleaning_services_outlined,
+                label: '清空',
+                enabled: hasLogs,
                 onPressed: () => _confirmClearLogs(controller),
-                icon: const Icon(
-                  Icons.cleaning_services_outlined,
-                  color: Color(0xFF8ED3FF),
-                  size: 16,
-                ),
-                label: const Text(
-                  '清空',
-                  style: TextStyle(color: Color(0xFF8ED3FF), fontSize: 12),
-                ),
               ),
             ],
           ),
@@ -1901,7 +1961,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: const Color(0xFF2D4F7E)),
               ),
-              child: controller.logs.isEmpty
+              child: !hasLogs
                   ? Center(
                       child: Text(
                         '暂无日志 — 连接串口后操作将在此显示',
@@ -1919,7 +1979,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                         final item = controller.logs[i];
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 2),
-                          child: Text(
+                          child: SelectableText(
                             item.pretty,
                             style: GoogleFonts.ibmPlexMono(
                               color: item.direction == 'TX'
@@ -2484,6 +2544,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   }
 
   Widget _buildLogsPage(HmiController controller) {
+    final hasLogs = controller.logs.isNotEmpty;
     return Container(
       color: const Color(0xFF08152A),
       child: Padding(
@@ -2492,16 +2553,30 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
           children: <Widget>[
             _buildCardHeader(
               title: '协议日志',
-              trailing: TextButton.icon(
-                onPressed: () => _confirmClearLogs(controller),
-                icon: const Icon(
-                  Icons.cleaning_services_outlined,
-                  color: Color(0xFF8ED3FF),
-                ),
-                label: const Text(
-                  '清空',
-                  style: TextStyle(color: Color(0xFF8ED3FF)),
-                ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  _buildMiniToolButton(
+                    icon: Icons.copy_all,
+                    label: '复制',
+                    enabled: hasLogs,
+                    onPressed: () => _copyAllLogs(controller),
+                  ),
+                  const SizedBox(width: 6),
+                  _buildMiniToolButton(
+                    icon: Icons.file_download_outlined,
+                    label: '导出',
+                    enabled: hasLogs,
+                    onPressed: () => _exportLogs(controller),
+                  ),
+                  const SizedBox(width: 6),
+                  _buildMiniToolButton(
+                    icon: Icons.cleaning_services_outlined,
+                    label: '清空',
+                    enabled: hasLogs,
+                    onPressed: () => _confirmClearLogs(controller),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 10),
@@ -2514,7 +2589,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(color: const Color(0xFF2D4F7E)),
                 ),
-                child: controller.logs.isEmpty
+                child: !hasLogs
                     ? Center(
                         child: Text(
                           '暂无日志',
@@ -2531,7 +2606,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                           final item = controller.logs[i];
                           return Padding(
                             padding: const EdgeInsets.symmetric(vertical: 4),
-                            child: Text(
+                            child: SelectableText(
                               item.pretty,
                               style: GoogleFonts.ibmPlexMono(
                                 color: item.direction == 'TX'
@@ -2549,6 +2624,30 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// 工具栏迷你按钮（复制/导出/清空 等）。
+  Widget _buildMiniToolButton({
+    required IconData icon,
+    required String label,
+    required bool enabled,
+    required VoidCallback onPressed,
+  }) {
+    return SizedBox(
+      height: 24,
+      child: TextButton.icon(
+        onPressed: enabled ? onPressed : null,
+        icon: Icon(icon, size: 14),
+        label: Text(label, style: const TextStyle(fontSize: 10)),
+        style: TextButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          minimumSize: Size.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          foregroundColor: const Color(0xFF8ED3FF),
+          disabledForegroundColor: const Color(0xFF4A6A8A),
         ),
       ),
     );

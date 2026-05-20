@@ -66,7 +66,7 @@ class _DgusFrame {
 class _DgusWaiter {
   _DgusWaiter(this.matcher);
   final bool Function(_DgusFrame frame) matcher;
-  final Completer<_DgusFrame> completer = Completer<_DgusFrame>();
+  final Completer<_DgusFrame?> completer = Completer<_DgusFrame?>();
 }
 
 /// 单个串口通道的状态与处理逻辑。
@@ -87,7 +87,17 @@ class _PortChannel {
   void dispose() {
     subscription?.cancel();
     subscription = null;
-    transport.disconnect();
+    try {
+      transport.disconnect();
+    } catch (e) {
+      debugPrint('通道 $this 断开异常: $e');
+    }
+    // 完成所有未完成的 DGUS 等待者，防止内存泄漏
+    for (final w in dgusWaiters) {
+      if (!w.completer.isCompleted) {
+        w.completer.complete(null);
+      }
+    }
     rxBuffer.clear();
     dgusRxBuffer.clear();
     dgusWaiters.clear();
@@ -290,14 +300,22 @@ class HmiController extends ChangeNotifier {
   }
 
   Future<void> disconnectPortA() async {
-    await _transportA.disconnect();
+    try {
+      await _transportA.disconnect();
+    } catch (e) {
+      debugPrint('端口 A 断开异常: $e');
+    }
     _clearWaiters(_channelA);
     _statusMessage = '端口 A 已断开';
     notifyListeners();
   }
 
   Future<void> disconnectPortB() async {
-    await _transportB.disconnect();
+    try {
+      await _transportB.disconnect();
+    } catch (e) {
+      debugPrint('端口 B 断开异常: $e');
+    }
     _clearWaiters(_channelB);
     _statusMessage = '端口 B 已断开';
     notifyListeners();
@@ -307,7 +325,7 @@ class HmiController extends ChangeNotifier {
   void _clearWaiters(_PortChannel channel) {
     for (final w in channel.dgusWaiters) {
       if (!w.completer.isCompleted) {
-        w.completer.completeError(StateError('串口已断开'));
+        w.completer.complete(null);
       }
     }
     channel.dgusWaiters.clear();
@@ -722,7 +740,6 @@ class HmiController extends ChangeNotifier {
     required String label,
     bool? usePortB,
   }) async {
-    // usePortB 为 null 时自动选择（端口 B 优先），非 null 时直接覆写。
     final preferB = usePortB ?? true;
     final channel = preferB
         ? (_transportB.isConnected ? _channelB : _channelA)
@@ -736,20 +753,29 @@ class HmiController extends ChangeNotifier {
 
     final waiter = _DgusWaiter(matcher);
     channel.dgusWaiters.add(waiter);
-    await transport.write(Uint8List.fromList(tx));
-    final txHex = tx.map((e) => toHex2(e)).join(' ');
-    _appendDgusLog('DGUS TX $txHex', channel.config.label);
 
     try {
-      final frame = await waiter.completer.future;
+      await transport.write(Uint8List.fromList(tx));
+      final txHex = tx.map((e) => toHex2(e)).join(' ');
+      _appendDgusLog('DGUS TX $txHex', channel.config.label);
+
+      final frame = await waiter.completer.future
+          .timeout(Duration(milliseconds: _retryPolicy.timeoutMs));
+      if (frame == null) {
+        _statusMessage = '$label失败: 串口已断开';
+        notifyListeners();
+        return null;
+      }
       _statusMessage = '$label成功';
       notifyListeners();
       return frame;
+    } on TimeoutException {
+      channel.dgusWaiters.remove(waiter);
+      _statusMessage = '$label超时（${_retryPolicy.timeoutMs}ms）';
+      notifyListeners();
+      return null;
     } catch (e) {
       channel.dgusWaiters.remove(waiter);
-      if (!waiter.completer.isCompleted) {
-        waiter.completer.completeError(e);
-      }
       _statusMessage = '$label失败';
       notifyListeners();
       return null;
@@ -992,8 +1018,16 @@ class HmiController extends ChangeNotifier {
 
   @override
   void dispose() {
-    _subscriptionA?.cancel();
-    _subscriptionB?.cancel();
+    try {
+      _subscriptionA?.cancel();
+    } catch (e) {
+      debugPrint('取消订阅 A 异常: $e');
+    }
+    try {
+      _subscriptionB?.cancel();
+    } catch (e) {
+      debugPrint('取消订阅 B 异常: $e');
+    }
     _channelA.dispose();
     _channelB.dispose();
     super.dispose();

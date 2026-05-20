@@ -42,40 +42,62 @@ class SerialTransportImpl implements SerialTransport {
     }
 
     final port = SerialPort(portName);
-    final opened = port.openReadWrite();
-    if (!opened) {
-      final message = SerialPort.lastError?.toString() ?? '无法打开串口 $portName';
-      throw StateError(message);
+    try {
+      final opened = port.openReadWrite();
+      if (!opened) {
+        final message =
+            SerialPort.lastError?.toString() ?? '无法打开串口 $portName';
+        throw StateError(message);
+      }
+
+      final config = SerialPortConfig();
+      config.baudRate = baudRate;
+      config.bits = 8;
+      config.stopBits = 1;
+      config.parity = SerialPortParity.none;
+      config.setFlowControl(SerialPortFlowControl.none);
+      port.config = config;
+
+      _reader = SerialPortReader(port);
+      _readerSubscription = _reader!.stream.listen(
+        (data) {
+          _incomingController.add(Uint8List.fromList(data));
+        },
+        onError: (Object error) {
+          debugPrint('串口读取错误: $error');
+        },
+      );
+      _port = port;
+    } catch (e) {
+      // 任何连接中间步骤失败时清理资源，避免 native 句柄泄漏
+      _readerSubscription?.cancel();
+      _readerSubscription = null;
+      _reader = null;
+      port.dispose();
+      rethrow;
     }
-
-    final config = SerialPortConfig();
-    config.baudRate = baudRate;
-    config.bits = 8;
-    config.stopBits = 1;
-    config.parity = SerialPortParity.none;
-    config.setFlowControl(SerialPortFlowControl.none);
-    port.config = config;
-
-    _reader = SerialPortReader(port);
-    _readerSubscription = _reader!.stream.listen(
-      (data) {
-        _incomingController.add(Uint8List.fromList(data));
-      },
-      onError: (Object error) {
-        debugPrint('串口读取错误: $error');
-      },
-    );
-    _port = port;
   }
 
   @override
   Future<void> disconnect() async {
-    await _readerSubscription?.cancel();
+    try {
+      await _readerSubscription?.cancel();
+    } catch (e) {
+      debugPrint('取消串口读取订阅异常: $e');
+    }
     _readerSubscription = null;
     _reader = null;
     if (_port != null) {
-      _port!.close();
-      _port!.dispose();
+      try {
+        _port!.close();
+      } catch (e) {
+        debugPrint('关闭串口异常: $e');
+      }
+      try {
+        _port!.dispose();
+      } catch (e) {
+        debugPrint('释放串口资源异常: $e');
+      }
       _port = null;
     }
   }
@@ -92,15 +114,25 @@ class SerialTransportImpl implements SerialTransport {
     if (port == null || !port.isOpen) {
       throw StateError('串口未连接');
     }
-    final written = port.write(bytes);
-    if (written < bytes.length) {
-      throw StateError('串口发送不完整: $written/${bytes.length}');
+    try {
+      final written = port.write(bytes);
+      if (written < bytes.length) {
+        throw StateError('串口发送不完整: $written/${bytes.length}');
+      }
+    } on StateError {
+      rethrow;
+    } catch (e) {
+      throw StateError('串口写入失败: $e');
     }
   }
 
   /// 释放内部流与底层串口资源。
   Future<void> dispose() async {
     await disconnect();
-    await _incomingController.close();
+    try {
+      await _incomingController.close();
+    } catch (e) {
+      debugPrint('关闭串口流控制器异常: $e');
+    }
   }
 }
