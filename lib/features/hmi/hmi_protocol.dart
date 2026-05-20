@@ -109,16 +109,16 @@ String _yesNo(int value) => value == 0 ? '否' : '是';
 
 String _packerResultName(int value) {
   return switch (value) {
-    0x00 => 'OK',
-    0x01 => 'INVALID_FUNC',
-    0x02 => 'INVALID_PARAM',
-    0x03 => 'BUSY',
-    0x04 => 'REJECTED_STATE',
-    0x05 => 'ALARM_ACTIVE',
-    0x06 => 'HW_FAIL',
-    0x07 => 'TIMEOUT',
-    0x08 => 'UNSUPPORTED',
-    _ => 'UNKNOWN_RESULT',
+    0x00 => '成功',
+    0x01 => '无效功能码',
+    0x02 => '无效参数',
+    0x03 => '设备忙',
+    0x04 => '状态拒绝',
+    0x05 => '报警激活',
+    0x06 => '硬件故障',
+    0x07 => '超时',
+    0x08 => '不支持',
+    _ => '未知错误',
   };
 }
 

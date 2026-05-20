@@ -112,7 +112,11 @@ class HmiController extends ChangeNotifier {
   HmiController(this._transportA, {SerialTransport? transportB})
     : _transportB = transportB ?? SerialTransportDummy(),
       _portAConfig = HmiPortConfig(baudRate: 9600, label: '端口 A（主控协议）'),
-      _portBConfig = HmiPortConfig(baudRate: 9600, crcAlgorithm: CrcAlgorithm.dgus, label: '端口 B（DGUS参数+日志）') {
+      _portBConfig = HmiPortConfig(
+        baudRate: 9600,
+        crcAlgorithm: CrcAlgorithm.dgus,
+        label: '端口 B（DGUS参数+日志）',
+      ) {
     _channelA = _PortChannel(_transportA, () => _portAConfig);
     _channelB = _PortChannel(_transportB, () => _portBConfig);
     _subscriptionA = _transportA.incomingBytes.listen(
@@ -164,7 +168,7 @@ class HmiController extends ChangeNotifier {
 
   String? get statusMessage => _statusMessage;
   HmiRetryPolicy get retryPolicy => _retryPolicy;
-  List<HmiLogEntry> get logs => List<HmiLogEntry>.unmodifiable(_logs);
+  List<HmiLogEntry> get logs => _logs.reversed.toList(growable: false);
 
   // ────────────── 端口 A 配置 ──────────────
 
@@ -352,9 +356,7 @@ class HmiController extends ChangeNotifier {
       return result;
     }
 
-    final p = policy ?? _retryPolicy;
     final start = DateTime.now();
-    final totalAttempts = p.maxRetries + 1;
     CommandExecutionResult finalResult = const CommandExecutionResult(
       success: false,
       message: '执行失败',
@@ -375,7 +377,7 @@ class HmiController extends ChangeNotifier {
       // 前一条命令异常，继续执行当前命令
     }
     _txChain = () async {
-      for (var attempt = 1; attempt <= totalAttempts; attempt++) {
+      try {
         final waiter = _createWaiter(channel, request.expectedFunctions);
         try {
           await transport.write(frameWithCrc.encode());
@@ -383,22 +385,23 @@ class HmiController extends ChangeNotifier {
             'TX',
             frameWithCrc,
             note: request.note,
-            attempt: attempt,
+            attempt: 1,
             portLabel: portLabel,
           );
         } catch (error) {
           _removeWaiter(channel, waiter);
+          if (!waiter.completer.isCompleted) {
+            waiter.completer.completeError(error);
+          }
           finalResult = CommandExecutionResult(
             success: false,
             message: '发送失败: $error',
           );
-          break;
+          return;
         }
 
         try {
-          final response = await waiter.completer.future.timeout(
-            Duration(milliseconds: p.timeoutMs),
-          );
+          final response = await waiter.completer.future;
           final elapsed = DateTime.now().difference(start);
           final function = request.frame.function & 0xFF;
           final isPackerResponse = function >= 0x40 && function <= 0x53;
@@ -412,9 +415,9 @@ class HmiController extends ChangeNotifier {
                     '(0x${toHex2(resultCode)})',
                 response: response,
                 elapsed: elapsed,
-                attempts: attempt,
+                attempts: 1,
               );
-              break;
+              return;
             }
           }
           finalResult = CommandExecutionResult(
@@ -422,36 +425,37 @@ class HmiController extends ChangeNotifier {
             message: '${request.label}成功',
             response: response,
             elapsed: elapsed,
-            attempts: attempt,
+            attempts: 1,
           );
-          break;
-        } on TimeoutException {
-          _removeWaiter(channel, waiter);
-          if (attempt >= totalAttempts) {
-            finalResult = CommandExecutionResult(
-              success: false,
-              message: '${request.label}超时(${p.timeoutMs}ms)',
-              elapsed: DateTime.now().difference(start),
-              attempts: attempt,
-            );
-            break;
-          }
-          await Future<void>.delayed(Duration(milliseconds: p.retryIntervalMs));
         } catch (error) {
           _removeWaiter(channel, waiter);
+          if (!waiter.completer.isCompleted) {
+            waiter.completer.completeError(error);
+          }
           finalResult = CommandExecutionResult(
             success: false,
             message: '${request.label}失败: $error',
           );
-          break;
         }
+      } catch (error) {
+        finalResult = CommandExecutionResult(
+          success: false,
+          message: '命令执行异常: $error',
+        );
+      } finally {
+        _statusMessage = finalResult.message;
+        notifyListeners();
       }
-
-      _statusMessage = finalResult.message;
-      notifyListeners();
     }();
 
-    await _txChain;
+    try {
+      await _txChain;
+    } catch (error) {
+      finalResult = CommandExecutionResult(
+        success: false,
+        message: '命令执行异常: $error',
+      );
+    }
     return finalResult;
   }
 
@@ -612,7 +616,12 @@ class HmiController extends ChangeNotifier {
     return _runPackerCommand(
       HmiPackerFunction.stepperJog,
       nodeAddress: nodeAddress,
-      payload: <int>[motor & 0xFF, direction & 0xFF, (pulses >> 8) & 0xFF, pulses & 0xFF],
+      payload: <int>[
+        motor & 0xFF,
+        direction & 0xFF,
+        (pulses >> 8) & 0xFF,
+        pulses & 0xFF,
+      ],
       usePortB: usePortB,
     );
   }
@@ -626,7 +635,11 @@ class HmiController extends ChangeNotifier {
     return _runPackerCommand(
       HmiPackerFunction.dcMotor1Jog,
       nodeAddress: nodeAddress,
-      payload: <int>[direction & 0xFF, (durationMs >> 8) & 0xFF, durationMs & 0xFF],
+      payload: <int>[
+        direction & 0xFF,
+        (durationMs >> 8) & 0xFF,
+        durationMs & 0xFF,
+      ],
       usePortB: usePortB,
     );
   }
@@ -640,7 +653,11 @@ class HmiController extends ChangeNotifier {
     return _runPackerCommand(
       HmiPackerFunction.dcMotor2Jog,
       nodeAddress: nodeAddress,
-      payload: <int>[direction & 0xFF, (durationMs >> 8) & 0xFF, durationMs & 0xFF],
+      payload: <int>[
+        direction & 0xFF,
+        (durationMs >> 8) & 0xFF,
+        durationMs & 0xFF,
+      ],
       usePortB: usePortB,
     );
   }
@@ -653,7 +670,15 @@ class HmiController extends ChangeNotifier {
   }) async {
     final dgusAddr = 0x2000 + ((paramId - 0x10) * 2);
     final resp = await _runDgusCommand(
-      tx: <int>[0x5A, 0xA5, 0x04, 0x83, (dgusAddr >> 8) & 0xFF, dgusAddr & 0xFF, 0x02],
+      tx: <int>[
+        0x5A,
+        0xA5,
+        0x04,
+        0x83,
+        (dgusAddr >> 8) & 0xFF,
+        dgusAddr & 0xFF,
+        0x02,
+      ],
       matcher: (f) =>
           f.command == 0x83 &&
           f.data.length >= 7 &&
@@ -706,10 +731,7 @@ class HmiController extends ChangeNotifier {
   }
 
   /// 保存当前运行时参数到 EEPROM。
-  Future<bool> sendParamSave({
-    required int nodeAddress,
-    bool? usePortB,
-  }) async {
+  Future<bool> sendParamSave({required int nodeAddress, bool? usePortB}) async {
     final resp = await _runDgusCommand(
       tx: const <int>[0x5A, 0xA5, 0x05, 0x82, 0x40, 0x00, 0x00, 0x01],
       matcher: (f) =>
@@ -772,10 +794,10 @@ class HmiController extends ChangeNotifier {
     );
     if (resp == null) return null;
     return <int>[
-      (resp.data[3] << 8) | resp.data[4],   // 0x1000: state
-      (resp.data[5] << 8) | resp.data[6],   // 0x1001: running
-      (resp.data[7] << 8) | resp.data[8],   // 0x1002: boot_done
-      (resp.data[9] << 8) | resp.data[10],  // 0x1003: alarm
+      (resp.data[3] << 8) | resp.data[4], // 0x1000: state
+      (resp.data[5] << 8) | resp.data[6], // 0x1001: running
+      (resp.data[7] << 8) | resp.data[8], // 0x1002: boot_done
+      (resp.data[9] << 8) | resp.data[10], // 0x1003: alarm
     ];
   }
 
@@ -804,19 +826,15 @@ class HmiController extends ChangeNotifier {
     _appendDgusLog('DGUS TX $txHex', channel.config.label);
 
     try {
-      final frame = await waiter.completer.future.timeout(
-        Duration(milliseconds: _retryPolicy.timeoutMs),
-      );
+      final frame = await waiter.completer.future;
       _statusMessage = '$label成功';
       notifyListeners();
       return frame;
-    } on TimeoutException {
+    } catch (e) {
       channel.dgusWaiters.remove(waiter);
-      _statusMessage = '$label超时(${_retryPolicy.timeoutMs}ms)';
-      notifyListeners();
-      return null;
-    } catch (_) {
-      channel.dgusWaiters.remove(waiter);
+      if (!waiter.completer.isCompleted) {
+        waiter.completer.completeError(e);
+      }
       _statusMessage = '$label失败';
       notifyListeners();
       return null;
@@ -830,8 +848,8 @@ class HmiController extends ChangeNotifier {
     bool? usePortB,
   }) {
     // usePortB 为 null 时自动选择（端口 A 优先），非 null 时直接覆写。
-    final effectivePortB = usePortB ??
-        (!_transportA.isConnected && _transportB.isConnected);
+    final effectivePortB =
+        usePortB ?? (!_transportA.isConnected && _transportB.isConnected);
     return runCommand(
       HmiCommandRequest(
         command: HmiCommandCode.packer,
@@ -1020,8 +1038,7 @@ class HmiController extends ChangeNotifier {
     int? attempt,
     String portLabel = '',
   }) {
-    _logs.insert(
-      0,
+    _logs.add(
       HmiLogEntry(
         direction: direction,
         frame: frame,
@@ -1032,29 +1049,39 @@ class HmiController extends ChangeNotifier {
         portLabel: portLabel,
       ),
     );
-    if (_logs.length > 800) {
-      _logs.removeLast();
+    // 按时间顺序存储，UI 层通过 getter 逆序展示。超过上限时从头部丢弃。
+    const maxLogs = 200;
+    if (_logs.length > maxLogs) {
+      _logs.removeAt(0);
     }
   }
 
-  /// 追加 DBUS/DGUS 协议日志条目（由变量帧解析而来）。
+  /// 追加 DGUS 协议日志条目（由变量帧解析而来）。
   void _appendDgusLog(String text, String portLabel) {
-    // 构造占位帧以满足 HmiLogEntry 非空约束
-    final placeholder = HmiFrame(address: 0, function: 0, data: const <int>[]);
-    _logs.insert(
-      0,
+    _logs.add(
       HmiLogEntry(
         direction: 'LOG',
-        frame: placeholder,
+        frame: _dgusPlaceholder,
         timestamp: DateTime.now(),
-        decoded: HmiDecodedFrame(title: 'DGUS日志', summary: text, rawDataHex: ''),
+        decoded: HmiDecodedFrame(
+          title: 'DGUS日志',
+          summary: text,
+          rawDataHex: '',
+        ),
         portLabel: portLabel,
       ),
     );
-    if (_logs.length > 800) {
-      _logs.removeLast();
+    const maxLogs = 200;
+    if (_logs.length > maxLogs) {
+      _logs.removeAt(0);
     }
   }
+
+  static final HmiFrame _dgusPlaceholder = HmiFrame(
+    address: 0,
+    function: 0,
+    data: const <int>[],
+  );
 
   String? _decodeDgusLogLine(_DgusFrame frame) {
     if (frame.command != 0x82 || frame.data.length < 4) {
