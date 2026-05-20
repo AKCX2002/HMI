@@ -133,7 +133,128 @@ String _clearFlagName(int value) {
   };
 }
 
-HmiDecodedFrame decodeHmiFrame(HmiFrame frame) {
+String _actionName(int value) {
+  return switch (value) {
+    0 => '停机',
+    1 => '启动',
+    2 => '完成查询',
+    _ => '未知($value)',
+  };
+}
+
+String _scopeName(int value) {
+  return switch (value) {
+    0 => '清除报警码',
+    1 => '清除锁存',
+    2 => '全部复位+停机',
+    _ => '未知($value)',
+  };
+}
+
+/// 解码发送帧（Y 分区：请求参数）。
+HmiDecodedFrame decodeHmiFrameTx(HmiFrame frame) {
+  final d = frame.data;
+  final raw = payloadToHex(d);
+
+  switch (frame.function) {
+    case 0x40:
+      return HmiDecodedFrame(
+        title: '打包机启停请求(0x40)',
+        summary: 'Y1=操作:${_actionName(d[0])}',
+        rawDataHex: raw,
+      );
+    case 0x41:
+      return HmiDecodedFrame(
+        title: '打包机状态查询(0x41)',
+        summary: 'Y1~Y16=0 (查询)',
+        rawDataHex: raw,
+      );
+    case 0x42:
+      return HmiDecodedFrame(
+        title: '出袋触发请求(0x42)',
+        summary:
+            'Y1=操作:${_actionName(d[0])} Y2=清除标志:${d[1] == 0 ? "是" : "否"}',
+        rawDataHex: raw,
+      );
+    case 0x43:
+      return HmiDecodedFrame(
+        title: '封口触发请求(0x43)',
+        summary:
+            'Y1=操作:${_actionName(d[0])} Y2=清除标志:${d[1] == 0 ? "是" : "否"}',
+        rawDataHex: raw,
+      );
+    case 0x44:
+      return HmiDecodedFrame(
+        title: '投料触发请求(0x44)',
+        summary:
+            'Y1=操作:${_actionName(d[0])} Y2=清除标志:${d[1] == 0 ? "是" : "否"}',
+        rawDataHex: raw,
+      );
+    case 0x45:
+      return HmiDecodedFrame(
+        title: '清除标志请求(0x45)',
+        summary: 'Y1=标志:${_clearFlagName(d[0])}',
+        rawDataHex: raw,
+      );
+    case 0x46:
+      return HmiDecodedFrame(
+        title: '报警查询请求(0x46)',
+        summary: 'Y1~Y16=0 (查询)',
+        rawDataHex: raw,
+      );
+    case 0x47:
+      return HmiDecodedFrame(
+        title: '打印机透传请求(0x47)',
+        summary: 'Y1=打印机命令:0x${toHex2(d[0])}',
+        rawDataHex: raw,
+      );
+    case 0x48:
+      return HmiDecodedFrame(
+        title: '版本查询请求(0x48)',
+        summary: 'Y1~Y16=0 (查询)',
+        rawDataHex: raw,
+      );
+    case 0x49:
+      return HmiDecodedFrame(
+        title: '故障复位请求(0x49)',
+        summary: 'Y1=范围:${_scopeName(d[0])}',
+        rawDataHex: raw,
+      );
+    case 0x4A:
+      return HmiDecodedFrame(
+        title: '步进点动请求(0x4A)',
+        summary:
+            'Y1=电机:${d[0]} Y2=方向:${d[1] == 0 ? "正转" : "反转"} '
+            'Y3~Y4=脉冲:${(d[2] << 8) | d[3]}',
+        rawDataHex: raw,
+      );
+    case 0x4B:
+      return HmiDecodedFrame(
+        title: '直流1点动请求(0x4B)',
+        summary:
+            'Y1=方向:${d[0] == 0 ? "正转" : "反转"} '
+            'Y2~Y3=时长:${(d[1] << 8) | d[2]}ms',
+        rawDataHex: raw,
+      );
+    case 0x4C:
+      return HmiDecodedFrame(
+        title: '直流2点动请求(0x4C)',
+        summary:
+            'Y1=方向:${d[0] == 0 ? "正转" : "反转"} '
+            'Y2~Y3=时长:${(d[1] << 8) | d[2]}ms',
+        rawDataHex: raw,
+      );
+    default:
+      return HmiDecodedFrame(
+        title: '未知请求(0x${toHex2(frame.function)})',
+        summary: '原始数据: $raw',
+        rawDataHex: raw,
+      );
+  }
+}
+
+/// 解码接收帧（Z 分区：响应参数）。
+HmiDecodedFrame decodeHmiFrameRx(HmiFrame frame) {
   final d = frame.data;
   final raw = payloadToHex(d);
 
@@ -142,91 +263,95 @@ HmiDecodedFrame decodeHmiFrame(HmiFrame frame) {
       return HmiDecodedFrame(
         title: '打包机启停响应(0x40)',
         summary:
-            '结果=${_packerResultName(d[0])} 运行=${d[1]} 报警=0x${toHex2(d[2])}',
+            'Z1=结果:${_packerResultName(d[0])} Z2=运行:${d[1]} Z3=报警:0x${toHex2(d[2])}',
         rawDataHex: raw,
       );
     case 0x41:
       return HmiDecodedFrame(
-        title: '打包机状态(0x41)',
+        title: '打包机状态响应(0x41)',
         summary:
-            '结果=${_packerResultName(d[0])} 运行=${d[1]} busy=0x${toHex2(d[3])} '
-            '出袋=${d[4]} 封口=${d[5]} 投料=${d[6]} 报警=0x${toHex2(d[10])}',
+            'Z1=结果:${_packerResultName(d[0])} Z2=运行:${d[1]} Z4=busy:0x${toHex2(d[3])} '
+            'Z5=出袋:${d[4]} Z6=封口:${d[5]} Z7=投料:${d[6]} Z11=报警:0x${toHex2(d[10])}',
         rawDataHex: raw,
       );
     case 0x42:
       return HmiDecodedFrame(
         title: '出袋触发响应(0x42)',
         summary:
-            '结果=${_packerResultName(d[0])} 锁存=${d[1]} 报警=0x${toHex2(d[2])}',
+            'Z1=结果:${_packerResultName(d[0])} Z2=锁存:${d[1]} Z3=报警:0x${toHex2(d[2])}',
         rawDataHex: raw,
       );
     case 0x43:
       return HmiDecodedFrame(
         title: '封口触发响应(0x43)',
         summary:
-            '结果=${_packerResultName(d[0])} 锁存=${d[1]} 报警=0x${toHex2(d[2])}',
+            'Z1=结果:${_packerResultName(d[0])} Z2=锁存:${d[1]} Z3=报警:0x${toHex2(d[2])}',
         rawDataHex: raw,
       );
     case 0x44:
       return HmiDecodedFrame(
         title: '投料触发响应(0x44)',
         summary:
-            '结果=${_packerResultName(d[0])} 锁存=${d[1]} 报警=0x${toHex2(d[2])}',
+            'Z1=结果:${_packerResultName(d[0])} Z2=锁存:${d[1]} Z3=报警:0x${toHex2(d[2])}',
         rawDataHex: raw,
       );
     case 0x45:
       return HmiDecodedFrame(
         title: '清除标志响应(0x45)',
-        summary: '结果=${_packerResultName(d[0])} 标志=${_clearFlagName(d[1])}',
+        summary:
+            'Z1=结果:${_packerResultName(d[0])} Z2=标志:${_clearFlagName(d[1])}',
         rawDataHex: raw,
       );
     case 0x46:
       return HmiDecodedFrame(
-        title: '打包机报警(0x46)',
+        title: '报警查询响应(0x46)',
         summary:
-            '结果=${_packerResultName(d[0])} 报警=0x${toHex2(d[1])} 锁存=${_yesNo(d[2])}',
+            'Z1=结果:${_packerResultName(d[0])} Z2=报警:0x${toHex2(d[1])} Z3=锁存:${_yesNo(d[2])}',
         rawDataHex: raw,
       );
     case 0x47:
       return HmiDecodedFrame(
         title: '打印机透传响应(0x47)',
         summary:
-            '结果=${_packerResultName(d[0])} rsp_cmd=0x${toHex2(d[1])} len=${d[2]}',
+            'Z1=结果:${_packerResultName(d[0])} Z2=rsp_cmd:0x${toHex2(d[1])} Z3=len:${d[2]}',
         rawDataHex: raw,
       );
     case 0x48:
       return HmiDecodedFrame(
         title: '版本查询响应(0x48)',
         summary:
-            '结果=${_packerResultName(d[0])} ver=${d[1]}.${d[2]} cap=0x${toHex2(d[3])}',
+            'Z1=结果:${_packerResultName(d[0])} Z2~Z3=ver:${d[1]}.${d[2]} Z4=cap:0x${toHex2(d[3])}',
         rawDataHex: raw,
       );
     case 0x49:
       return HmiDecodedFrame(
         title: '故障复位响应(0x49)',
         summary:
-            '结果=${_packerResultName(d[0])} 报警=0x${toHex2(d[1])} 锁存=${_yesNo(d[2])}',
+            'Z1=结果:${_packerResultName(d[0])} Z2=报警:0x${toHex2(d[1])} Z3=锁存:${_yesNo(d[2])}',
         rawDataHex: raw,
       );
     case 0x4A:
       return HmiDecodedFrame(
         title: '步进点动响应(0x4A)',
         summary:
-            '结果=${_packerResultName(d[0])} 电机=${d[1]} 方向=${d[2]} 脉冲=${(d[3] << 8) | d[4]}',
+            'Z1=结果:${_packerResultName(d[0])} Z2=电机:${d[1]} Z3=方向:${d[2]} '
+            'Z4~Z5=脉冲:${(d[3] << 8) | d[4]}',
         rawDataHex: raw,
       );
     case 0x4B:
       return HmiDecodedFrame(
         title: '直流1点动响应(0x4B)',
         summary:
-            '结果=${_packerResultName(d[0])} 电机=${d[1]} 方向=${d[2]} 时长=${(d[3] << 8) | d[4]}ms',
+            'Z1=结果:${_packerResultName(d[0])} Z2=电机:${d[1]} Z3=方向:${d[2]} '
+            'Z4~Z5=时长:${(d[3] << 8) | d[4]}ms',
         rawDataHex: raw,
       );
     case 0x4C:
       return HmiDecodedFrame(
         title: '直流2点动响应(0x4C)',
         summary:
-            '结果=${_packerResultName(d[0])} 电机=${d[1]} 方向=${d[2]} 时长=${(d[3] << 8) | d[4]}ms',
+            'Z1=结果:${_packerResultName(d[0])} Z2=电机:${d[1]} Z3=方向:${d[2]} '
+            'Z4~Z5=时长:${(d[3] << 8) | d[4]}ms',
         rawDataHex: raw,
       );
     default:
@@ -236,4 +361,9 @@ HmiDecodedFrame decodeHmiFrame(HmiFrame frame) {
         rawDataHex: raw,
       );
   }
+}
+
+/// 根据方向自动选择 Y（发送）或 Z（接收）解码。
+HmiDecodedFrame decodeHmiFrame(HmiFrame frame, {String direction = 'RX'}) {
+  return direction == 'TX' ? decodeHmiFrameTx(frame) : decodeHmiFrameRx(frame);
 }

@@ -934,7 +934,7 @@ class HmiController extends ChangeNotifier {
         direction: direction,
         frame: frame,
         timestamp: DateTime.now(),
-        decoded: decodeHmiFrame(frame),
+        decoded: decodeHmiFrame(frame, direction: direction),
         note: note,
         attempt: attempt,
         portLabel: portLabel,
