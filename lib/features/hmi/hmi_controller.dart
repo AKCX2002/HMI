@@ -112,7 +112,7 @@ class HmiController extends ChangeNotifier {
   HmiController(this._transportA, {SerialTransport? transportB})
     : _transportB = transportB ?? SerialTransportDummy(),
       _portAConfig = HmiPortConfig(baudRate: 9600, label: '端口 A（主控协议）'),
-      _portBConfig = HmiPortConfig(baudRate: 9600, crcAlgorithm: CrcAlgorithm.dgus, label: '端口 B（打包机直连）') {
+      _portBConfig = HmiPortConfig(baudRate: 9600, crcAlgorithm: CrcAlgorithm.dgus, label: '端口 B（DGUS参数+日志）') {
     _channelA = _PortChannel(_transportA, () => _portAConfig);
     _channelB = _PortChannel(_transportB, () => _portBConfig);
     _subscriptionA = _transportA.incomingBytes.listen(
@@ -471,102 +471,177 @@ class HmiController extends ChangeNotifier {
     return runCommand(request, policy: policy, usePortB: true);
   }
 
-  // ────────────── 打包机命令（端口 B ─ 若端口 B 未连接则回退到端口 A） ──────────────
+  // ────────────── 打包机命令（usePortB=null 时走自动路由，非 null 时强制指定端口） ──────────────
 
   Future<CommandExecutionResult> sendPackerControl({
     required int nodeAddress,
     required int action,
+    bool? usePortB,
   }) {
     return _runPackerCommand(
       HmiPackerFunction.control,
       nodeAddress: nodeAddress,
       payload: <int>[action & 0xFF],
+      usePortB: usePortB,
     );
   }
 
-  Future<CommandExecutionResult> sendPackerStatus({required int nodeAddress}) {
+  Future<CommandExecutionResult> sendPackerStatus({
+    required int nodeAddress,
+    bool? usePortB,
+  }) {
     return _runPackerCommand(
       HmiPackerFunction.status,
       nodeAddress: nodeAddress,
+      usePortB: usePortB,
     );
   }
 
+  /// [action] 0=查询, 1=启动, 2=完成查询
+  /// [clearFlag] 0=清除完成标志, 1=保留完成标志
   Future<CommandExecutionResult> sendPackerTriggerBag({
     required int nodeAddress,
+    int action = 1,
+    int clearFlag = 0,
+    bool? usePortB,
   }) {
     return _runPackerCommand(
       HmiPackerFunction.triggerBag,
       nodeAddress: nodeAddress,
-      payload: const <int>[0x01, 0x00],
+      payload: <int>[action & 0xFF, clearFlag & 0xFF],
+      usePortB: usePortB,
     );
   }
 
   Future<CommandExecutionResult> sendPackerTriggerSeal({
     required int nodeAddress,
+    int action = 1,
+    int clearFlag = 0,
+    bool? usePortB,
   }) {
     return _runPackerCommand(
       HmiPackerFunction.triggerSeal,
       nodeAddress: nodeAddress,
-      payload: const <int>[0x01, 0x00],
+      payload: <int>[action & 0xFF, clearFlag & 0xFF],
+      usePortB: usePortB,
     );
   }
 
   Future<CommandExecutionResult> sendPackerTriggerDeliver({
     required int nodeAddress,
+    int action = 1,
+    int clearFlag = 0,
+    bool? usePortB,
   }) {
     return _runPackerCommand(
       HmiPackerFunction.triggerDeliver,
       nodeAddress: nodeAddress,
-      payload: const <int>[0x01, 0x00],
+      payload: <int>[action & 0xFF, clearFlag & 0xFF],
+      usePortB: usePortB,
     );
   }
 
   Future<CommandExecutionResult> sendPackerClearFlag({
     required int nodeAddress,
     required int flagId,
+    bool? usePortB,
   }) {
     return _runPackerCommand(
       HmiPackerFunction.clearFlag,
       nodeAddress: nodeAddress,
       payload: <int>[flagId & 0xFF],
+      usePortB: usePortB,
     );
   }
 
   Future<CommandExecutionResult> sendPackerAlarmQuery({
     required int nodeAddress,
+    bool? usePortB,
   }) {
     return _runPackerCommand(
       HmiPackerFunction.alarmQuery,
       nodeAddress: nodeAddress,
+      usePortB: usePortB,
     );
   }
 
   Future<CommandExecutionResult> sendPackerPrinterForward({
     required int nodeAddress,
     int printerCmd = 0x81,
+    bool? usePortB,
   }) {
     return _runPackerCommand(
       HmiPackerFunction.printerForward,
       nodeAddress: nodeAddress,
       payload: <int>[printerCmd & 0xFF],
+      usePortB: usePortB,
     );
   }
 
-  Future<CommandExecutionResult> sendPackerVersion({required int nodeAddress}) {
+  Future<CommandExecutionResult> sendPackerVersion({
+    required int nodeAddress,
+    bool? usePortB,
+  }) {
     return _runPackerCommand(
       HmiPackerFunction.version,
       nodeAddress: nodeAddress,
+      usePortB: usePortB,
     );
   }
 
   Future<CommandExecutionResult> sendPackerResetFault({
     required int nodeAddress,
     required int scope,
+    bool? usePortB,
   }) {
     return _runPackerCommand(
       HmiPackerFunction.resetFault,
       nodeAddress: nodeAddress,
       payload: <int>[scope & 0xFF],
+      usePortB: usePortB,
+    );
+  }
+
+  Future<CommandExecutionResult> sendPackerStepperJog({
+    required int nodeAddress,
+    required int motor,
+    required int direction,
+    required int pulses,
+    bool? usePortB,
+  }) {
+    return _runPackerCommand(
+      HmiPackerFunction.stepperJog,
+      nodeAddress: nodeAddress,
+      payload: <int>[motor & 0xFF, direction & 0xFF, (pulses >> 8) & 0xFF, pulses & 0xFF],
+      usePortB: usePortB,
+    );
+  }
+
+  Future<CommandExecutionResult> sendPackerDcMotor1Jog({
+    required int nodeAddress,
+    required int direction,
+    required int durationMs,
+    bool? usePortB,
+  }) {
+    return _runPackerCommand(
+      HmiPackerFunction.dcMotor1Jog,
+      nodeAddress: nodeAddress,
+      payload: <int>[direction & 0xFF, (durationMs >> 8) & 0xFF, durationMs & 0xFF],
+      usePortB: usePortB,
+    );
+  }
+
+  Future<CommandExecutionResult> sendPackerDcMotor2Jog({
+    required int nodeAddress,
+    required int direction,
+    required int durationMs,
+    bool? usePortB,
+  }) {
+    return _runPackerCommand(
+      HmiPackerFunction.dcMotor2Jog,
+      nodeAddress: nodeAddress,
+      payload: <int>[direction & 0xFF, (durationMs >> 8) & 0xFF, durationMs & 0xFF],
+      usePortB: usePortB,
     );
   }
 
@@ -574,6 +649,7 @@ class HmiController extends ChangeNotifier {
   Future<int?> sendParamRead({
     required int nodeAddress,
     required int paramId,
+    bool? usePortB,
   }) async {
     final dgusAddr = 0x2000 + ((paramId - 0x10) * 2);
     final resp = await _runDgusCommand(
@@ -585,6 +661,7 @@ class HmiController extends ChangeNotifier {
           f.data[1] == (dgusAddr & 0xFF) &&
           f.data[2] == 0x02,
       label: 'DGUS读取',
+      usePortB: usePortB,
     );
     if (resp == null) return null;
     return (resp.data[3] << 24) |
@@ -598,6 +675,7 @@ class HmiController extends ChangeNotifier {
     required int nodeAddress,
     required int paramId,
     required int value,
+    bool? usePortB,
   }) async {
     final dgusAddr = 0x2000 + ((paramId - 0x10) * 2);
     final w0 = (value >> 16) & 0xFFFF;
@@ -621,13 +699,17 @@ class HmiController extends ChangeNotifier {
           f.data[0] == 0x4F &&
           f.data[1] == 0x4B,
       label: 'DGUS写入',
+      usePortB: usePortB,
     );
     if (resp == null) return null;
     return value;
   }
 
   /// 保存当前运行时参数到 EEPROM。
-  Future<bool> sendParamSave({required int nodeAddress}) async {
+  Future<bool> sendParamSave({
+    required int nodeAddress,
+    bool? usePortB,
+  }) async {
     final resp = await _runDgusCommand(
       tx: const <int>[0x5A, 0xA5, 0x05, 0x82, 0x40, 0x00, 0x00, 0x01],
       matcher: (f) =>
@@ -636,6 +718,7 @@ class HmiController extends ChangeNotifier {
           f.data[0] == 0x4F &&
           f.data[1] == 0x4B,
       label: 'DGUS保存',
+      usePortB: usePortB,
     );
     return resp != null;
   }
@@ -643,6 +726,7 @@ class HmiController extends ChangeNotifier {
   Future<bool> sendParamLoad({
     required int nodeAddress,
     required int action,
+    bool? usePortB,
   }) async {
     final addr = (action == 0) ? 0x4001 : 0x4002;
     final resp = await _runDgusCommand(
@@ -662,6 +746,7 @@ class HmiController extends ChangeNotifier {
           f.data[0] == 0x4F &&
           f.data[1] == 0x4B,
       label: (action == 0) ? 'DGUS加载EEPROM' : 'DGUS恢复默认',
+      usePortB: usePortB,
     );
     return resp != null;
   }
@@ -670,7 +755,10 @@ class HmiController extends ChangeNotifier {
   ///
   /// 返回 4 个 uint16_t 值: [state, running, bootDone, alarmCode]。
   /// 当门禁锁定（机器运行中）时返回 null。
-  Future<List<int>?> sendDgusSystemInfo({required int nodeAddress}) async {
+  Future<List<int>?> sendDgusSystemInfo({
+    required int nodeAddress,
+    bool? usePortB,
+  }) async {
     final resp = await _runDgusCommand(
       tx: const <int>[0x5A, 0xA5, 0x04, 0x83, 0x10, 0x00, 0x04],
       matcher: (f) =>
@@ -680,6 +768,7 @@ class HmiController extends ChangeNotifier {
           f.data[1] == 0x00 &&
           f.data[2] == 0x04,
       label: 'DGUS系统信息',
+      usePortB: usePortB,
     );
     if (resp == null) return null;
     return <int>[
@@ -694,8 +783,13 @@ class HmiController extends ChangeNotifier {
     required List<int> tx,
     required bool Function(_DgusFrame frame) matcher,
     required String label,
+    bool? usePortB,
   }) async {
-    final channel = _transportB.isConnected ? _channelB : _channelA;
+    // usePortB 为 null 时自动选择（端口 B 优先），非 null 时直接覆写。
+    final preferB = usePortB ?? true;
+    final channel = preferB
+        ? (_transportB.isConnected ? _channelB : _channelA)
+        : (_transportA.isConnected ? _channelA : _channelB);
     final transport = channel.transport;
     if (!transport.isConnected) {
       _statusMessage = '$label失败: 串口未连接';
@@ -733,9 +827,11 @@ class HmiController extends ChangeNotifier {
     HmiPackerFunction function, {
     required int nodeAddress,
     List<int> payload = const <int>[],
+    bool? usePortB,
   }) {
-    // 打包机命令默认走端口 B（若端口 B 未连接则回退到端口 A）
-    final usePortB = _transportB.isConnected;
+    // usePortB 为 null 时自动选择（端口 A 优先），非 null 时直接覆写。
+    final effectivePortB = usePortB ??
+        (!_transportA.isConnected && _transportB.isConnected);
     return runCommand(
       HmiCommandRequest(
         command: HmiCommandCode.packer,
@@ -750,7 +846,7 @@ class HmiController extends ChangeNotifier {
         note: '打包机节点0x${toHex2(nodeAddress)}',
         label: function.label,
       ),
-      usePortB: usePortB,
+      usePortB: effectivePortB,
     );
   }
 
@@ -790,18 +886,24 @@ class HmiController extends ChangeNotifier {
   // ────────────── 内部处理 ──────────────
 
   void _onIncomingBytes(Uint8List bytes, _PortChannel channel) {
-    if (channel == _channelB) {
-      _consumeDgusFrames(bytes, channel);
-      return;
-    }
-
+    // 每个串口通道独立同时尝试两种协议解析器:
+    // - 20B 固定帧 (CRC 算法由通道配置决定)
+    // - DGUS 5A A5 帧 (变量读写 + 日志)
     channel.rxBuffer.addAll(bytes);
     _consumeFrames(channel);
+    _consumeDgusFrames(bytes, channel);
   }
 
   void _consumeDgusFrames(Uint8List bytes, _PortChannel channel) {
     final buf = channel.dgusRxBuffer;
     buf.addAll(bytes);
+
+    // 缓冲区溢出保护：噪声/错波特率时限制最大缓冲，防止 OOM
+    const maxDgusBuffer = 4096;
+    if (buf.length > maxDgusBuffer) {
+      buf.removeRange(0, buf.length - maxDgusBuffer);
+    }
+
     while (buf.length >= 4) {
       final start = buf.indexWhere((v) => v == 0x5A);
       if (start < 0) {
