@@ -1712,22 +1712,19 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
 
     try {
       final path = await exportLogsToFile(text);
-      if (path == null) {
-        // Web 平台：回退到剪贴板
-        await Clipboard.setData(ClipboardData(text: text));
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Web 平台: 日志内容已复制到剪贴板'), duration: Duration(seconds: 2)),
-          );
-        }
-        return;
-      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('日志已导出: $path'),
             duration: const Duration(seconds: 4),
           ),
+        );
+      }
+    } on UnsupportedError {
+      await Clipboard.setData(ClipboardData(text: text));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Web 平台: 日志内容已复制到剪贴板'), duration: Duration(seconds: 2)),
         );
       }
     } catch (e) {

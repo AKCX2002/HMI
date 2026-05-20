@@ -71,13 +71,20 @@ class _DgusWaiter {
 
 /// 单个串口通道的状态与处理逻辑。
 class _PortChannel {
-  _PortChannel(this.transport, this.configRef);
+  _PortChannel(
+    this.transport,
+    this.configRef, {
+    required this.acceptsPackerFrames,
+    required this.acceptsDgusFrames,
+  });
 
   final SerialTransport transport;
   final List<int> rxBuffer = <int>[];
   final List<int> dgusRxBuffer = <int>[];
   final List<_DgusWaiter> dgusWaiters = <_DgusWaiter>[];
   StreamSubscription<Uint8List>? subscription;
+  final bool acceptsPackerFrames;
+  final bool acceptsDgusFrames;
 
   /// 指向外部可变的 HmiPortConfig 引用，以便读取最新配置。
   final HmiPortConfig Function() configRef;
@@ -118,8 +125,18 @@ class HmiController extends ChangeNotifier {
         crcAlgorithm: CrcAlgorithm.dgus,
         label: '端口 B（DGUS参数+日志）',
       ) {
-    _channelA = _PortChannel(_transportA, () => _portAConfig);
-    _channelB = _PortChannel(_transportB, () => _portBConfig);
+    _channelA = _PortChannel(
+      _transportA,
+      () => _portAConfig,
+      acceptsPackerFrames: true,
+      acceptsDgusFrames: false,
+    );
+    _channelB = _PortChannel(
+      _transportB,
+      () => _portBConfig,
+      acceptsPackerFrames: false,
+      acceptsDgusFrames: true,
+    );
     _subscriptionA = _transportA.incomingBytes.listen(
       (bytes) => _onIncomingBytes(bytes, _channelA),
     );
@@ -139,6 +156,8 @@ class HmiController extends ChangeNotifier {
   StreamSubscription<Uint8List>? _subscriptionB;
 
   final List<HmiLogEntry> _logs = <HmiLogEntry>[];
+  List<HmiLogEntry> _logsCache = const <HmiLogEntry>[];
+  bool _logsCacheDirty = true;
 
   Future<void> _txChain = Future<void>.value();
 
@@ -169,7 +188,13 @@ class HmiController extends ChangeNotifier {
 
   String? get statusMessage => _statusMessage;
   HmiRetryPolicy get retryPolicy => _retryPolicy;
-  List<HmiLogEntry> get logs => _logs.reversed.toList(growable: false);
+  List<HmiLogEntry> get logs {
+    if (_logsCacheDirty) {
+      _logsCache = List<HmiLogEntry>.unmodifiable(_logs.reversed);
+      _logsCacheDirty = false;
+    }
+    return _logsCache;
+  }
 
   // ────────────── 端口 A 配置 ──────────────
 
@@ -373,7 +398,9 @@ class HmiController extends ChangeNotifier {
     );
 
     // 串行化写入，避免并发写串口
-    try { await _txChain; } catch (_) {}
+    try {
+      await _txChain;
+    } catch (_) {}
     final done = Completer<void>();
     _txChain = done.future;
 
@@ -383,7 +410,10 @@ class HmiController extends ChangeNotifier {
       _statusMessage = '${request.label}已发送';
       notifyListeners();
       done.complete();
-      return CommandExecutionResult(success: true, message: '${request.label}已发送');
+      return CommandExecutionResult(
+        success: true,
+        message: '${request.label}已发送',
+      );
     } catch (error) {
       _statusMessage = '${request.label}发送失败: $error';
       notifyListeners();
@@ -741,9 +771,7 @@ class HmiController extends ChangeNotifier {
     bool? usePortB,
   }) async {
     final preferB = usePortB ?? true;
-    final channel = preferB
-        ? (_transportB.isConnected ? _channelB : _channelA)
-        : (_transportA.isConnected ? _channelA : _channelB);
+    final channel = preferB ? _channelB : _channelA;
     final transport = channel.transport;
     if (!transport.isConnected) {
       _statusMessage = '$label失败: 串口未连接';
@@ -759,21 +787,19 @@ class HmiController extends ChangeNotifier {
       final txHex = tx.map((e) => toHex2(e)).join(' ');
       _appendDgusLog('DGUS TX $txHex', channel.config.label);
 
-      final frame = await waiter.completer.future
-          .timeout(Duration(milliseconds: _retryPolicy.timeoutMs));
+      final frame = await waiter.completer.future.timeout(
+        Duration(milliseconds: _retryPolicy.timeoutMs),
+        onTimeout: () => null,
+      );
+      channel.dgusWaiters.remove(waiter);
       if (frame == null) {
-        _statusMessage = '$label失败: 串口已断开';
+        _statusMessage = '$label超时（${_retryPolicy.timeoutMs}ms）';
         notifyListeners();
         return null;
       }
       _statusMessage = '$label成功';
       notifyListeners();
       return frame;
-    } on TimeoutException {
-      channel.dgusWaiters.remove(waiter);
-      _statusMessage = '$label超时（${_retryPolicy.timeoutMs}ms）';
-      notifyListeners();
-      return null;
     } catch (e) {
       channel.dgusWaiters.remove(waiter);
       _statusMessage = '$label失败';
@@ -788,9 +814,8 @@ class HmiController extends ChangeNotifier {
     List<int> payload = const <int>[],
     bool? usePortB,
   }) {
-    // usePortB 为 null 时自动选择（端口 A 优先），非 null 时直接覆写。
-    final effectivePortB =
-        usePortB ?? (!_transportA.isConnected && _transportB.isConnected);
+    // 默认固定走端口 A（USART3 / 20B），只有显式指定时才允许改口。
+    final effectivePortB = usePortB ?? false;
     return runCommand(
       HmiCommandRequest(
         command: HmiCommandCode.packer,
@@ -839,23 +864,34 @@ class HmiController extends ChangeNotifier {
 
   void clearLogs() {
     _logs.clear();
+    _logsCacheDirty = true;
     notifyListeners();
   }
 
   // ────────────── 内部处理 ──────────────
 
   void _onIncomingBytes(Uint8List bytes, _PortChannel channel) {
-    // 每个串口通道独立同时尝试两种协议解析器:
-    // - 20B 固定帧 (CRC 算法由通道配置决定)
-    // - DGUS 5A A5 帧 (变量读写 + 日志)
-    channel.rxBuffer.addAll(bytes);
-    _consumeFrames(channel);
-    _consumeDgusFrames(bytes, channel);
+    var hasFrameUpdate = false;
+    var hasDgusLogUpdate = false;
+
+    if (channel.acceptsPackerFrames) {
+      channel.rxBuffer.addAll(bytes);
+      hasFrameUpdate = _consumeFrames(channel);
+    }
+
+    if (channel.acceptsDgusFrames) {
+      hasDgusLogUpdate = _consumeDgusFrames(bytes, channel);
+    }
+
+hg    if (hasFrameUpdate || hasDgusLogUpdate) {
+      notifyListeners();
+    }
   }
 
-  void _consumeDgusFrames(Uint8List bytes, _PortChannel channel) {
+  bool _consumeDgusFrames(Uint8List bytes, _PortChannel channel) {
     final buf = channel.dgusRxBuffer;
     buf.addAll(bytes);
+    var changed = false;
 
     // 缓冲区溢出保护：噪声/错波特率时限制最大缓冲，防止 OOM
     const maxDgusBuffer = 4096;
@@ -867,12 +903,12 @@ class HmiController extends ChangeNotifier {
       final start = buf.indexWhere((v) => v == 0x5A);
       if (start < 0) {
         buf.clear();
-        return;
+        return changed;
       }
       if (start > 0) {
         buf.removeRange(0, start);
       }
-      if (buf.length < 4) return;
+      if (buf.length < 4) return changed;
       if (buf[1] != 0xA5) {
         buf.removeAt(0);
         continue;
@@ -883,7 +919,7 @@ class HmiController extends ChangeNotifier {
         buf.removeAt(0);
         continue;
       }
-      if (buf.length < frameLen) return;
+      if (buf.length < frameLen) return changed;
       final frame = _DgusFrame(
         command: buf[3] & 0xFF,
         data: Uint8List.fromList(buf.sublist(4, frameLen)),
@@ -892,12 +928,14 @@ class HmiController extends ChangeNotifier {
       final decoded = _decodeDgusLogLine(frame);
       if (decoded != null && decoded.isNotEmpty) {
         _appendDgusLog(decoded, channel.config.label);
+        changed = true;
       }
       buf.removeRange(0, frameLen);
     }
+    return changed;
   }
 
-  void _consumeFrames(_PortChannel channel) {
+  bool _consumeFrames(_PortChannel channel) {
     // 缓冲区溢出保护：噪声/错波特率时限制最大缓冲，防止 OOM
     const maxBuffer = 4096;
     if (channel.rxBuffer.length > maxBuffer) {
@@ -905,6 +943,7 @@ class HmiController extends ChangeNotifier {
     }
 
     final crcAlgo = channel.config.crcAlgorithm;
+    var changed = false;
     while (channel.rxBuffer.length >= HmiFrame.frameLength) {
       final start = channel.rxBuffer.indexWhere(
         (v) =>
@@ -917,13 +956,13 @@ class HmiController extends ChangeNotifier {
       );
       if (start < 0) {
         channel.rxBuffer.clear();
-        return;
+        return changed;
       }
       if (start > 0) {
         channel.rxBuffer.removeRange(0, start);
       }
       if (channel.rxBuffer.length < HmiFrame.frameLength) {
-        return;
+        return changed;
       }
       final packet = channel.rxBuffer.sublist(0, HmiFrame.frameLength);
       final decodedFrame = HmiFrame.tryDecode(packet, crcAlgorithm: crcAlgo);
@@ -935,8 +974,9 @@ class HmiController extends ChangeNotifier {
       _statusMessage =
           '收到响应（${channel.config.label}）: ${decodeHmiFrame(decodedFrame).summary}';
       channel.rxBuffer.removeRange(0, HmiFrame.frameLength);
-      notifyListeners();
+      changed = true;
     }
+    return changed;
   }
 
   void _dispatchDgusWaiters(_PortChannel channel, _DgusFrame frame) {
@@ -971,6 +1011,7 @@ class HmiController extends ChangeNotifier {
     if (_logs.length > maxLogs) {
       _logs.removeAt(0);
     }
+    _logsCacheDirty = true;
   }
 
   /// 追加 DGUS 协议日志条目（由变量帧解析而来）。
@@ -992,6 +1033,7 @@ class HmiController extends ChangeNotifier {
     if (_logs.length > maxLogs) {
       _logs.removeAt(0);
     }
+    _logsCacheDirty = true;
   }
 
   static final HmiFrame _dgusPlaceholder = HmiFrame(

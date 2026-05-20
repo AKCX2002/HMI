@@ -61,7 +61,7 @@ class SerialTransportImpl implements SerialTransport {
       _reader = SerialPortReader(port);
       _readerSubscription = _reader!.stream.listen(
         (data) {
-          _incomingController.add(Uint8List.fromList(data));
+          _incomingController.add(data);
         },
         onError: (Object error) {
           debugPrint('串口读取错误: $error');

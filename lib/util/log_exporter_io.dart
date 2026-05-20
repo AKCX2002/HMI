@@ -2,7 +2,7 @@ import 'dart:io' show Directory, File, Platform;
 
 /// 原生平台（Linux/Windows/macOS/Android）日志导出：写入文件。
 /// 成功返回文件路径；失败抛出异常，由调用方处理回退。
-Future<String?> exportLogsToFile(String content) async {
+Future<String> exportLogsToFile(String content) async {
   final dir = Directory(
     Platform.isAndroid
         ? '/storage/emulated/0/Download'
