@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -62,31 +64,43 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   bool _sysInfoLoading = false;
 
   /// 端口覆写开关：每个面板可独立选择物理串口发送命令
-  bool _packerUsePortB = false;  // Port A 面板默认走端口 A
-  bool _dgusUsePortB = true;     // Port B 面板默认走端口 B
+  bool _packerUsePortB = false;
+  bool _dgusUsePortB = true;
 
   /// Port A 子标签页: 0=基础控制, 1=维护诊断, 2=电机点动
   int _packerSubTab = 0;
 
-  /// ── 基础控制 0x40~0x44 ──
-  int _cmd40Action = 1;           // 0x40: 0=停止, 1=启动
-  int _cmd42Action = 1;           // 0x42: 0=查询, 1=启动, 2=完成查询
-  int _cmd43Action = 1;           // 0x43: 同上
-  int _cmd44Action = 1;           // 0x44: 同上
+  /// 基础控制 0x40~0x44
+  int _cmd40Action = 1;
+  int _cmd42Action = 1;
+  int _cmd43Action = 1;
+  int _cmd44Action = 1;
 
-  /// ── 维护诊断 0x45~0x49 ──
-  int _cmd45Flag = 1;             // 0x45: 1=装袋完成, 2=封口完成, 3=传送完成
-  final TextEditingController _cmd47PrinterCmd = TextEditingController(text: '81');
-  int _cmd49Scope = 0;            // 0x49: 0=清除报警, 1=+锁存, 2=+全部清零
+  /// 维护诊断 0x45~0x49
+  int _cmd45Flag = 1;
+  final TextEditingController _cmd47PrinterCmd = TextEditingController(
+    text: '81',
+  );
+  int _cmd49Scope = 0;
 
-  /// ── 电机点动 0x4A~0x4C ──
-  int _cmd4aMotor = 1;            // 0x4A: 电机号 1/2
-  int _cmd4aDir = 1;              // 0x4A: 0=反转, 1=正转
-  final TextEditingController _cmd4aPulses = TextEditingController(text: '1000');
-  int _cmd4bDir = 1;              // 0x4B: 0=反转, 1=正转
-  final TextEditingController _cmd4bDuration = TextEditingController(text: '500');
-  int _cmd4cDir = 1;              // 0x4C: 0=反转, 1=正转
-  final TextEditingController _cmd4cDuration = TextEditingController(text: '500');
+  /// 电机点动 0x4A~0x4C
+  int _cmd4aMotor = 1;
+  int _cmd4aDir = 1;
+  final TextEditingController _cmd4aPulses = TextEditingController(
+    text: '1000',
+  );
+  int _cmd4bDir = 1;
+  final TextEditingController _cmd4bDuration = TextEditingController(
+    text: '500',
+  );
+  int _cmd4cDir = 1;
+  final TextEditingController _cmd4cDuration = TextEditingController(
+    text: '500',
+  );
+
+  final TextEditingController _stackChartPoints = TextEditingController(
+    text: '120',
+  );
 
   @override
   void initState() {
@@ -104,6 +118,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     _retryCount.dispose();
     _timeoutMs.dispose();
     _retryIntervalMs.dispose();
+    _stackChartPoints.dispose();
     _rawAddr.dispose();
     _rawFunc.dispose();
     _rawPayload.dispose();
@@ -147,7 +162,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        backgroundColor: result.success ? const Color(0xFF2E7D32) : const Color(0xFF9F2D2D),
+        backgroundColor: result.success
+            ? const Color(0xFF2E7D32)
+            : const Color(0xFF9F2D2D),
         content: Text(result.message),
       ),
     );
@@ -195,7 +212,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   }
 
   Widget _buildCompactMenuBar() {
-    final menus = <String>['主控制台', '参数配置', '帧调试台', '协议日志'];
+    final menus = <String>['主控制台', '参数配置', '帧调试台', '协议日志', '栈水位统计'];
     return Container(
       height: 48,
       decoration: const BoxDecoration(
@@ -273,6 +290,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
       (Icons.tune, '参数配置'),
       (Icons.memory, '帧调试台'),
       (Icons.receipt_long, '协议日志'),
+      (Icons.show_chart, '栈水位统计'),
     ];
 
     return Container(
@@ -513,6 +531,8 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
         return _buildFrameDebuggerPage(controller);
       case 3:
         return _buildLogsPage(controller);
+      case 4:
+        return _buildStackLevelPage(controller);
       case 0:
       default:
         return _buildMainDashboard(controller);
@@ -946,7 +966,10 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                   ),
                   decoration: const InputDecoration(
                     isDense: true,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 4,
+                    ),
                   ),
                 ),
               ),
@@ -981,7 +1004,10 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
               onTap: () => setState(() => _packerSubTab = i),
               borderRadius: BorderRadius.circular(6),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 5,
+                ),
                 decoration: BoxDecoration(
                   color: _packerSubTab == i
                       ? const Color(0xFF1B91D8)
@@ -1011,54 +1037,98 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   /// ── 基础控制 0x40~0x44 ──
   List<Widget> _buildBasicTab(HmiController controller, int nodeAddr) {
     return <Widget>[
-      _cmdRow(controller, nodeAddr, '0x40', '启停控制',
+      _cmdRow(
+        controller,
+        nodeAddr,
+        '0x40',
+        '启停控制',
         config: _buildDropdown(
           value: _cmd40Action,
           items: const <int>[1, 0],
           labels: const <String>['启动', '停止'],
           onChanged: (v) => setState(() => _cmd40Action = v ?? 1),
         ),
-        onSend: () => _runCommand(() => controller.sendPackerControl(
-          nodeAddress: nodeAddr, action: _cmd40Action, usePortB: _packerUsePortB,
-        ), '打包机${_cmd40Action == 1 ? "启动" : "停止"}'),
+        onSend: () => _runCommand(
+          () => controller.sendPackerControl(
+            nodeAddress: nodeAddr,
+            action: _cmd40Action,
+            usePortB: _packerUsePortB,
+          ),
+          '打包机${_cmd40Action == 1 ? "启动" : "停止"}',
+        ),
       ),
-      _cmdRow(controller, nodeAddr, '0x41', '状态查询',
-        onSend: () => _runCommand(() => controller.sendPackerStatus(
-          nodeAddress: nodeAddr, usePortB: _packerUsePortB,
-        ), '状态查询'),
+      _cmdRow(
+        controller,
+        nodeAddr,
+        '0x41',
+        '状态查询',
+        onSend: () => _runCommand(
+          () => controller.sendPackerStatus(
+            nodeAddress: nodeAddr,
+            usePortB: _packerUsePortB,
+          ),
+          '状态查询',
+        ),
       ),
-      _cmdRow(controller, nodeAddr, '0x42', '出袋',
+      _cmdRow(
+        controller,
+        nodeAddr,
+        '0x42',
+        '出袋',
         config: _buildDropdown(
           value: _cmd42Action,
           items: const <int>[1, 0, 2],
           labels: const <String>['启动', '查询', '完成?'],
           onChanged: (v) => setState(() => _cmd42Action = v ?? 1),
         ),
-        onSend: () => _runCommand(() => controller.sendPackerTriggerBag(
-          nodeAddress: nodeAddr, action: _cmd42Action, usePortB: _packerUsePortB,
-        ), '出袋触发'),
+        onSend: () => _runCommand(
+          () => controller.sendPackerTriggerBag(
+            nodeAddress: nodeAddr,
+            action: _cmd42Action,
+            usePortB: _packerUsePortB,
+          ),
+          '出袋触发',
+        ),
       ),
-      _cmdRow(controller, nodeAddr, '0x43', '封口',
+      _cmdRow(
+        controller,
+        nodeAddr,
+        '0x43',
+        '封口',
         config: _buildDropdown(
           value: _cmd43Action,
           items: const <int>[1, 0, 2],
           labels: const <String>['启动', '查询', '完成?'],
           onChanged: (v) => setState(() => _cmd43Action = v ?? 1),
         ),
-        onSend: () => _runCommand(() => controller.sendPackerTriggerSeal(
-          nodeAddress: nodeAddr, action: _cmd43Action, usePortB: _packerUsePortB,
-        ), '封口触发'),
+        onSend: () => _runCommand(
+          () => controller.sendPackerTriggerSeal(
+            nodeAddress: nodeAddr,
+            action: _cmd43Action,
+            usePortB: _packerUsePortB,
+          ),
+          '封口触发',
+        ),
       ),
-      _cmdRow(controller, nodeAddr, '0x44', '投料',
+      _cmdRow(
+        controller,
+        nodeAddr,
+        '0x44',
+        '投料',
         config: _buildDropdown(
           value: _cmd44Action,
           items: const <int>[1, 0, 2],
           labels: const <String>['启动', '查询', '完成?'],
           onChanged: (v) => setState(() => _cmd44Action = v ?? 1),
         ),
-        onSend: () => _runCommand(() => controller.sendPackerTriggerDeliver(
-          nodeAddress: nodeAddr, action: _cmd44Action, usePortB: _packerUsePortB,
-        ), '投料触发'),
+        onSend: () => _runCommand(
+          () => controller.sendPackerTriggerDeliver(
+            nodeAddress: nodeAddr,
+            action: _cmd44Action,
+            usePortB: _packerUsePortB,
+          ),
+          '投料触发',
+        ),
       ),
     ];
   }
@@ -1066,57 +1136,102 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   /// ── 维护诊断 0x45~0x49 ──
   List<Widget> _buildMaintTab(HmiController controller, int nodeAddr) {
     return <Widget>[
-      _cmdRow(controller, nodeAddr, '0x45', '清除标志',
+      _cmdRow(
+        controller,
+        nodeAddr,
+        '0x45',
+        '清除标志',
         config: _buildDropdown(
           value: _cmd45Flag,
           items: const <int>[1, 2, 3],
           labels: const <String>['装袋完成', '封口完成', '传送完成'],
           onChanged: (v) => setState(() => _cmd45Flag = v ?? 1),
         ),
-        onSend: () => _runCommand(() => controller.sendPackerClearFlag(
-          nodeAddress: nodeAddr, flagId: _cmd45Flag, usePortB: _packerUsePortB,
-        ), '清除标志'),
+        onSend: () => _runCommand(
+          () => controller.sendPackerClearFlag(
+            nodeAddress: nodeAddr,
+            flagId: _cmd45Flag,
+            usePortB: _packerUsePortB,
+          ),
+          '清除标志',
+        ),
       ),
-      _cmdRow(controller, nodeAddr, '0x46', '报警查询',
-        onSend: () => _runCommand(() => controller.sendPackerAlarmQuery(
-          nodeAddress: nodeAddr, usePortB: _packerUsePortB,
-        ), '报警查询'),
+      _cmdRow(
+        controller,
+        nodeAddr,
+        '0x46',
+        '报警查询',
+        onSend: () => _runCommand(
+          () => controller.sendPackerAlarmQuery(
+            nodeAddress: nodeAddr,
+            usePortB: _packerUsePortB,
+          ),
+          '报警查询',
+        ),
       ),
-      _cmdRow(controller, nodeAddr, '0x47', '打印机透传',
+      _cmdRow(
+        controller,
+        nodeAddr,
+        '0x47',
+        '打印机透传',
         config: SizedBox(
-          width: 52, height: 28,
+          width: 52,
+          height: 28,
           child: TextField(
             controller: _cmd47PrinterCmd,
             smartQuotesType: SmartQuotesType.disabled,
             smartDashesType: SmartDashesType.disabled,
-            style: GoogleFonts.ibmPlexMono(color: const Color(0xFFD6E9FF), fontSize: 12),
+            style: GoogleFonts.ibmPlexMono(
+              color: const Color(0xFFD6E9FF),
+              fontSize: 12,
+            ),
             decoration: const InputDecoration(
               isDense: true,
               contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
             ),
           ),
         ),
-        onSend: () => _runCommand(() => controller.sendPackerPrinterForward(
-          nodeAddress: nodeAddr,
-          printerCmd: _safeHex(_cmd47PrinterCmd.text, fallback: 0x81),
-          usePortB: _packerUsePortB,
-        ), '打印机透传'),
+        onSend: () => _runCommand(
+          () => controller.sendPackerPrinterForward(
+            nodeAddress: nodeAddr,
+            printerCmd: _safeHex(_cmd47PrinterCmd.text, fallback: 0x81),
+            usePortB: _packerUsePortB,
+          ),
+          '打印机透传',
+        ),
       ),
-      _cmdRow(controller, nodeAddr, '0x48', '版本查询',
-        onSend: () => _runCommand(() => controller.sendPackerVersion(
-          nodeAddress: nodeAddr, usePortB: _packerUsePortB,
-        ), '版本查询'),
+      _cmdRow(
+        controller,
+        nodeAddr,
+        '0x48',
+        '版本查询',
+        onSend: () => _runCommand(
+          () => controller.sendPackerVersion(
+            nodeAddress: nodeAddr,
+            usePortB: _packerUsePortB,
+          ),
+          '版本查询',
+        ),
       ),
-      _cmdRow(controller, nodeAddr, '0x49', '故障复位',
+      _cmdRow(
+        controller,
+        nodeAddr,
+        '0x49',
+        '故障复位',
         config: _buildDropdown(
           value: _cmd49Scope,
           items: const <int>[0, 1, 2],
           labels: const <String>['清除报警', '+锁存', '+全部清零'],
           onChanged: (v) => setState(() => _cmd49Scope = v ?? 0),
         ),
-        onSend: () => _runCommand(() => controller.sendPackerResetFault(
-          nodeAddress: nodeAddr, scope: _cmd49Scope, usePortB: _packerUsePortB,
-        ), '故障复位'),
+        onSend: () => _runCommand(
+          () => controller.sendPackerResetFault(
+            nodeAddress: nodeAddr,
+            scope: _cmd49Scope,
+            usePortB: _packerUsePortB,
+          ),
+          '故障复位',
+        ),
       ),
     ];
   }
@@ -1124,71 +1239,160 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   /// ── 电机点动 0x4A~0x4C ──
   List<Widget> _buildMotorTab(HmiController controller, int nodeAddr) {
     return <Widget>[
-      _cmdRow(controller, nodeAddr, '0x4A', '步进点动',
+      _cmdRow(
+        controller,
+        nodeAddr,
+        '0x4A',
+        '步进点动',
         config: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            _buildDropdown(value: _cmd4aMotor, items: const <int>[1, 2], labels: const <String>['M1', 'M2'],
-              onChanged: (v) => setState(() => _cmd4aMotor = v ?? 1)),
+            _buildDropdown(
+              value: _cmd4aMotor,
+              items: const <int>[1, 2],
+              labels: const <String>['M1', 'M2'],
+              onChanged: (v) => setState(() => _cmd4aMotor = v ?? 1),
+            ),
             const SizedBox(width: 4),
-            _buildDropdown(value: _cmd4aDir, items: const <int>[1, 0], labels: const <String>['正', '反'],
-              onChanged: (v) => setState(() => _cmd4aDir = v ?? 1)),
+            _buildDropdown(
+              value: _cmd4aDir,
+              items: const <int>[1, 0],
+              labels: const <String>['正', '反'],
+              onChanged: (v) => setState(() => _cmd4aDir = v ?? 1),
+            ),
             const SizedBox(width: 4),
-            SizedBox(width: 60, height: 28, child: TextField(
-              controller: _cmd4aPulses, keyboardType: TextInputType.number,
-              smartQuotesType: SmartQuotesType.disabled, smartDashesType: SmartDashesType.disabled,
-              style: GoogleFonts.ibmPlexMono(color: const Color(0xFFD6E9FF), fontSize: 12),
-              decoration: const InputDecoration(hintText: '脉冲', isDense: true,
-                contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 4)),
-            )),
+            SizedBox(
+              width: 60,
+              height: 28,
+              child: TextField(
+                controller: _cmd4aPulses,
+                keyboardType: TextInputType.number,
+                smartQuotesType: SmartQuotesType.disabled,
+                smartDashesType: SmartDashesType.disabled,
+                style: GoogleFonts.ibmPlexMono(
+                  color: const Color(0xFFD6E9FF),
+                  fontSize: 12,
+                ),
+                decoration: const InputDecoration(
+                  hintText: '脉冲',
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 4,
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
-        onSend: () => _runCommand(() => controller.sendPackerStepperJog(
-          nodeAddress: nodeAddr, motor: _cmd4aMotor, direction: _cmd4aDir,
-          pulses: _safeInt(_cmd4aPulses, fallback: 1000), usePortB: _packerUsePortB,
-        ), '步进点动'),
+        onSend: () => _runCommand(
+          () => controller.sendPackerStepperJog(
+            nodeAddress: nodeAddr,
+            motor: _cmd4aMotor,
+            direction: _cmd4aDir,
+            pulses: _safeInt(_cmd4aPulses, fallback: 1000),
+            usePortB: _packerUsePortB,
+          ),
+          '步进点动',
+        ),
       ),
-      _cmdRow(controller, nodeAddr, '0x4B', '直流1点动',
+      _cmdRow(
+        controller,
+        nodeAddr,
+        '0x4B',
+        '直流1点动',
         config: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            _buildDropdown(value: _cmd4bDir, items: const <int>[1, 0], labels: const <String>['正', '反'],
-              onChanged: (v) => setState(() => _cmd4bDir = v ?? 1)),
+            _buildDropdown(
+              value: _cmd4bDir,
+              items: const <int>[1, 0],
+              labels: const <String>['正', '反'],
+              onChanged: (v) => setState(() => _cmd4bDir = v ?? 1),
+            ),
             const SizedBox(width: 4),
-            SizedBox(width: 60, height: 28, child: TextField(
-              controller: _cmd4bDuration, keyboardType: TextInputType.number,
-              smartQuotesType: SmartQuotesType.disabled, smartDashesType: SmartDashesType.disabled,
-              style: GoogleFonts.ibmPlexMono(color: const Color(0xFFD6E9FF), fontSize: 12),
-              decoration: const InputDecoration(hintText: 'ms', isDense: true,
-                contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 4)),
-            )),
+            SizedBox(
+              width: 60,
+              height: 28,
+              child: TextField(
+                controller: _cmd4bDuration,
+                keyboardType: TextInputType.number,
+                smartQuotesType: SmartQuotesType.disabled,
+                smartDashesType: SmartDashesType.disabled,
+                style: GoogleFonts.ibmPlexMono(
+                  color: const Color(0xFFD6E9FF),
+                  fontSize: 12,
+                ),
+                decoration: const InputDecoration(
+                  hintText: 'ms',
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 4,
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
-        onSend: () => _runCommand(() => controller.sendPackerDcMotor1Jog(
-          nodeAddress: nodeAddr, direction: _cmd4bDir,
-          durationMs: _safeInt(_cmd4bDuration, fallback: 500), usePortB: _packerUsePortB,
-        ), '直流1点动'),
+        onSend: () => _runCommand(
+          () => controller.sendPackerDcMotor1Jog(
+            nodeAddress: nodeAddr,
+            direction: _cmd4bDir,
+            durationMs: _safeInt(_cmd4bDuration, fallback: 500),
+            usePortB: _packerUsePortB,
+          ),
+          '直流1点动',
+        ),
       ),
-      _cmdRow(controller, nodeAddr, '0x4C', '直流2点动',
+      _cmdRow(
+        controller,
+        nodeAddr,
+        '0x4C',
+        '直流2点动',
         config: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            _buildDropdown(value: _cmd4cDir, items: const <int>[1, 0], labels: const <String>['正', '反'],
-              onChanged: (v) => setState(() => _cmd4cDir = v ?? 1)),
+            _buildDropdown(
+              value: _cmd4cDir,
+              items: const <int>[1, 0],
+              labels: const <String>['正', '反'],
+              onChanged: (v) => setState(() => _cmd4cDir = v ?? 1),
+            ),
             const SizedBox(width: 4),
-            SizedBox(width: 60, height: 28, child: TextField(
-              controller: _cmd4cDuration, keyboardType: TextInputType.number,
-              smartQuotesType: SmartQuotesType.disabled, smartDashesType: SmartDashesType.disabled,
-              style: GoogleFonts.ibmPlexMono(color: const Color(0xFFD6E9FF), fontSize: 12),
-              decoration: const InputDecoration(hintText: 'ms', isDense: true,
-                contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 4)),
-            )),
+            SizedBox(
+              width: 60,
+              height: 28,
+              child: TextField(
+                controller: _cmd4cDuration,
+                keyboardType: TextInputType.number,
+                smartQuotesType: SmartQuotesType.disabled,
+                smartDashesType: SmartDashesType.disabled,
+                style: GoogleFonts.ibmPlexMono(
+                  color: const Color(0xFFD6E9FF),
+                  fontSize: 12,
+                ),
+                decoration: const InputDecoration(
+                  hintText: 'ms',
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 4,
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
-        onSend: () => _runCommand(() => controller.sendPackerDcMotor2Jog(
-          nodeAddress: nodeAddr, direction: _cmd4cDir,
-          durationMs: _safeInt(_cmd4cDuration, fallback: 500), usePortB: _packerUsePortB,
-        ), '直流2点动'),
+        onSend: () => _runCommand(
+          () => controller.sendPackerDcMotor2Jog(
+            nodeAddress: nodeAddr,
+            direction: _cmd4cDir,
+            durationMs: _safeInt(_cmd4cDuration, fallback: 500),
+            usePortB: _packerUsePortB,
+          ),
+          '直流2点动',
+        ),
       ),
     ];
   }
@@ -1229,7 +1433,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                 backgroundColor: const Color(0xFF1B91D8),
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(horizontal: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
               ),
               onPressed: onSend,
               child: Text('发送', style: GoogleFonts.ibmPlexSans(fontSize: 11)),
@@ -1260,7 +1466,10 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
         isDense: true,
         underline: const SizedBox.shrink(),
         dropdownColor: const Color(0xFF122B4D),
-        style: GoogleFonts.ibmPlexSans(color: const Color(0xFFD6E9FF), fontSize: 12),
+        style: GoogleFonts.ibmPlexSans(
+          color: const Color(0xFFD6E9FF),
+          fontSize: 12,
+        ),
         items: List<DropdownMenuItem<int>>.generate(
           items.length,
           (i) => DropdownMenuItem<int>(
@@ -1701,7 +1910,10 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     await Clipboard.setData(ClipboardData(text: text));
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('日志已复制到剪贴板'), duration: Duration(seconds: 2)),
+        const SnackBar(
+          content: Text('日志已复制到剪贴板'),
+          duration: Duration(seconds: 2),
+        ),
       );
     }
   }
@@ -1724,14 +1936,20 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
       await Clipboard.setData(ClipboardData(text: text));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Web 平台: 日志内容已复制到剪贴板'), duration: Duration(seconds: 2)),
+          const SnackBar(
+            content: Text('Web 平台: 日志内容已复制到剪贴板'),
+            duration: Duration(seconds: 2),
+          ),
         );
       }
     } catch (e) {
       await Clipboard.setData(ClipboardData(text: text));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('文件保存失败 ($e)，日志已复制到剪贴板'), duration: const Duration(seconds: 4)),
+          SnackBar(
+            content: Text('文件保存失败 ($e)，日志已复制到剪贴板'),
+            duration: const Duration(seconds: 4),
+          ),
         );
       }
     }
@@ -1809,7 +2027,10 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   /// DGUS 保存 EEPROM
   Future<void> _dbusSave(HmiController controller) async {
     final nodeAddr = _safeHex(_dbusNodeAddr.text, fallback: 0xFA);
-    final ok = await controller.sendParamSave(nodeAddress: nodeAddr, usePortB: _dgusUsePortB);
+    final ok = await controller.sendParamSave(
+      nodeAddress: nodeAddr,
+      usePortB: _dgusUsePortB,
+    );
     if (!mounted) return;
     setState(() => _dbusStatus = ok ? '已保存到 EEPROM' : '保存失败');
   }
@@ -1857,7 +2078,11 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     );
     if (confirmed != true) return;
     final nodeAddr = _safeHex(_dbusNodeAddr.text, fallback: 0xFA);
-    final ok = await controller.sendParamLoad(nodeAddress: nodeAddr, action: 1, usePortB: _dgusUsePortB);
+    final ok = await controller.sendParamLoad(
+      nodeAddress: nodeAddr,
+      action: 1,
+      usePortB: _dgusUsePortB,
+    );
     if (!mounted) return;
     setState(() => _dbusStatus = ok ? '已恢复默认值，请重新读取' : '恢复默认值失败');
   }
@@ -1869,7 +2094,10 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
       _sysInfoLoading = true;
       _sysInfoStatus = '读取 DGUS 系统信息...';
     });
-    final data = await controller.sendDgusSystemInfo(nodeAddress: nodeAddr, usePortB: _dgusUsePortB);
+    final data = await controller.sendDgusSystemInfo(
+      nodeAddress: nodeAddr,
+      usePortB: _dgusUsePortB,
+    );
     if (!mounted) return;
     if (data != null) {
       final running = data[1];
@@ -2435,7 +2663,10 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
 
   /// 保存到 EEPROM
   Future<void> _saveParams(HmiController controller, int nodeAddr) async {
-    final ok = await controller.sendParamSave(nodeAddress: nodeAddr, usePortB: _dgusUsePortB);
+    final ok = await controller.sendParamSave(
+      nodeAddress: nodeAddr,
+      usePortB: _dgusUsePortB,
+    );
     if (mounted) {
       setState(() => _paramsStatus = ok ? '已保存到 EEPROM' : '保存失败');
     }
@@ -2626,6 +2857,119 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     );
   }
 
+  Widget _buildStackLevelPage(HmiController controller) {
+    final samples = controller.stackLevelSamples;
+    final maxPoints = _safeInt(_stackChartPoints, fallback: 120).clamp(10, 600);
+    final points = samples.take(maxPoints).toList().reversed.toList();
+    final levels = points.map((e) => e.level).toList();
+    final current = levels.isEmpty ? 0 : levels.last;
+    final minLevel = levels.isEmpty ? 0 : levels.reduce(math.min);
+    final maxLevel = levels.isEmpty ? 0 : levels.reduce(math.max);
+    final avg = levels.isEmpty
+        ? 0
+        : (levels.reduce((a, b) => a + b) / levels.length).toStringAsFixed(1);
+
+    return Container(
+      color: const Color(0xFF08152A),
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: <Widget>[
+          _buildCard(
+            title: '栈水位统计与趋势图',
+            child: Column(
+              children: <Widget>[
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: <Widget>[
+                    SizedBox(width: 110, child: _textField('显示点数', _stackChartPoints)),
+                    _miniBtn('清空样本', true, controller.clearStackLevelSamples),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: _stackMetric('样本数', '${samples.length}', const Color(0xFF9EC7FF)),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _stackMetric('当前值', '$current', const Color(0xFF9FFFC9)),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _stackMetric('最小/最大', '$minLevel / $maxLevel', const Color(0xFFFFE082)),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _stackMetric('平均值', '$avg', const Color(0xFF8ED3FF)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 260,
+                  child: Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0B1E3A),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFF2D4F7E)),
+                    ),
+                    child: points.length < 2
+                        ? Center(
+                            child: Text(
+                              '样本不足，请先采集至少 2 个点',
+                              style: GoogleFonts.ibmPlexSans(
+                                color: const Color(0xFFA7C7EB),
+                                fontSize: 12,
+                              ),
+                            ),
+                          )
+                        : CustomPaint(painter: _StackLevelChartPainter(points)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _stackMetric(String label, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0D1A30),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF233A62)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            label,
+            style: GoogleFonts.ibmPlexSans(
+              color: const Color(0xFFA7C7EB),
+              fontSize: 11,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            style: GoogleFonts.ibmPlexMono(
+              color: color,
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// 工具栏迷你按钮（复制/导出/清空 等）。
   Widget _buildMiniToolButton({
     required IconData icon,
@@ -2775,5 +3119,74 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
         borderRadius: BorderRadius.circular(8),
       ),
     );
+  }
+}
+
+class _StackLevelChartPainter extends CustomPainter {
+  _StackLevelChartPainter(this.points);
+
+  final List<StackLevelSample> points;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const padding = EdgeInsets.fromLTRB(36, 16, 16, 28);
+    final chartRect = Rect.fromLTWH(
+      padding.left,
+      padding.top,
+      size.width - padding.horizontal,
+      size.height - padding.vertical,
+    );
+    if (chartRect.width <= 0 || chartRect.height <= 0 || points.length < 2) {
+      return;
+    }
+
+    final levels = points.map((e) => e.level).toList();
+    final minLevel = levels.reduce(math.min).toDouble();
+    final maxLevel = levels.reduce(math.max).toDouble();
+    final span = (maxLevel - minLevel).abs() < 0.001
+        ? 1.0
+        : (maxLevel - minLevel);
+
+    final axisPaint = Paint()
+      ..color = const Color(0xFF2D4F7E)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    canvas.drawRect(chartRect, axisPaint);
+
+    final gridPaint = Paint()
+      ..color = const Color(0x332D4F7E)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    for (var i = 1; i < 4; i++) {
+      final y = chartRect.top + chartRect.height * i / 4;
+      canvas.drawLine(
+        Offset(chartRect.left, y),
+        Offset(chartRect.right, y),
+        gridPaint,
+      );
+    }
+
+    final path = Path();
+    for (var i = 0; i < points.length; i++) {
+      final x = chartRect.left + chartRect.width * i / (points.length - 1);
+      final norm = (points[i].level - minLevel) / span;
+      final y = chartRect.bottom - norm * chartRect.height;
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+
+    final linePaint = Paint()
+      ..color = const Color(0xFF5ED0FF)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    canvas.drawPath(path, linePaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _StackLevelChartPainter oldDelegate) {
+    return oldDelegate.points != points;
   }
 }

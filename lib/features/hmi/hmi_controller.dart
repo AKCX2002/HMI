@@ -57,6 +57,19 @@ class CommandExecutionResult {
   final int? attempts;
 }
 
+class StackLevelSample {
+  const StackLevelSample({required this.timestamp, required this.level});
+
+  final DateTime timestamp;
+  final int level;
+}
+
+class _FrameWaiter {
+  _FrameWaiter(this.expectedFunctions);
+
+  final Set<int> expectedFunctions;
+  final Completer<HmiFrame> completer = Completer<HmiFrame>();
+}
 class _DgusFrame {
   _DgusFrame({required this.command, required this.data});
   final int command;
@@ -160,6 +173,7 @@ class HmiController extends ChangeNotifier {
   final List<HmiLogEntry> _logs = <HmiLogEntry>[];
   List<HmiLogEntry> _logsCache = const <HmiLogEntry>[];
   bool _logsCacheDirty = true;
+  final List<StackLevelSample> _stackLevelSamples = <StackLevelSample>[];
 
   Future<void> _txChain = Future<void>.value();
 
@@ -197,6 +211,8 @@ class HmiController extends ChangeNotifier {
     }
     return _logsCache;
   }
+  List<StackLevelSample> get stackLevelSamples =>
+      List<StackLevelSample>.unmodifiable(_stackLevelSamples);
 
   // ────────────── 端口 A 配置 ──────────────
 
@@ -871,6 +887,11 @@ class HmiController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void clearStackLevelSamples() {
+    _stackLevelSamples.clear();
+    notifyListeners();
+  }
+
   // ────────────── 内部处理 ──────────────
 
   void _onIncomingBytes(Uint8List bytes, _PortChannel channel) {
@@ -1021,6 +1042,17 @@ class HmiController extends ChangeNotifier {
 
   /// 追加 DGUS 协议日志条目（由变量帧解析而来）。
   void _appendDgusLog(String text, String portLabel) {
+    final stackLevel = _parseStackLevelFromLog(text);
+    if (stackLevel != null) {
+      _stackLevelSamples.insert(
+        0,
+        StackLevelSample(timestamp: DateTime.now(), level: stackLevel),
+      );
+      if (_stackLevelSamples.length > 1200) {
+        _stackLevelSamples.removeLast();
+      }
+    }
+
     _logs.add(
       HmiLogEntry(
         direction: 'LOG',
@@ -1046,6 +1078,28 @@ class HmiController extends ChangeNotifier {
     function: 0,
     data: const <int>[],
   );
+  
+  int? _parseStackLevelFromLog(String text) {
+    final patterns = <RegExp>[
+      RegExp(r'(?:栈水位|stack[_\s-]?level|water[_\s-]?level)\s*[:=]\s*(0x[0-9a-fA-F]+|\d+)', caseSensitive: false),
+      RegExp(r'(?:栈水位|stack[_\s-]?level|water[_\s-]?level)\s+(0x[0-9a-fA-F]+|\d+)', caseSensitive: false),
+    ];
+    for (final pattern in patterns) {
+      final m = pattern.firstMatch(text);
+      if (m == null) {
+        continue;
+      }
+      final raw = (m.group(1) ?? '').trim();
+      if (raw.isEmpty) {
+        continue;
+      }
+      if (raw.startsWith('0x') || raw.startsWith('0X')) {
+        return int.tryParse(raw.substring(2), radix: 16);
+      }
+      return int.tryParse(raw);
+    }
+    return null;
+  }
 
   String? _decodeDgusLogLine(_DgusFrame frame) {
     if (frame.command != 0x82 || frame.data.length < 4) {
