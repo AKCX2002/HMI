@@ -131,3 +131,25 @@ flutter clean
 flutter pub get
 flutter run -d windows
 ```
+
+## 9. GitHub 自动构建（Windows / Linux / Android）
+
+已新增工作流: `.github/workflows/flutter-multi-platform.yml`
+
+触发规则:
+
+- `push` 到 `main/master`: 仅执行 `analyze + test`
+- `pull_request` 到 `main/master`: 仅执行 `analyze + test`
+- 打 `v*` 标签（如 `v1.0.0`）: 执行三端构建并上传产物
+- `workflow_dispatch` 手动触发: 执行三端构建并上传产物
+
+产物:
+
+- Windows: `windows-release`
+- Linux: `linux-release`
+- Android: `android-debug-apk`（`app-debug.apk`）
+
+说明:
+
+- Android 当前默认输出 `debug APK`，无需签名密钥即可在 CI 生成。
+- 若后续要发布 `release`，需补充 keystore 与签名配置（建议通过 GitHub Secrets 注入）。
