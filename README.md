@@ -140,7 +140,7 @@ flutter run -d windows
 
 - `push` 到 `main/master`: 仅执行 `analyze + test`
 - `pull_request` 到 `main/master`: 仅执行 `analyze + test`
-- 打 `v*` 标签（如 `v1.0.0`）: 执行三端构建并上传产物
+- 打 `v*` 标签（如 `v1.0.0`）: 执行三端构建、上传产物，并自动创建 GitHub Release
 - `workflow_dispatch` 手动触发: 执行三端构建并上传产物
 
 产物:
@@ -153,3 +153,4 @@ flutter run -d windows
 
 - Android 当前默认输出 `debug APK`，无需签名密钥即可在 CI 生成。
 - 若后续要发布 `release`，需补充 keystore 与签名配置（建议通过 GitHub Secrets 注入）。
+- 仅 `v*` 标签触发会发布到 GitHub `Releases` 页面；手动触发仅上传 Actions Artifacts。
