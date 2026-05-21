@@ -64,12 +64,6 @@ class StackLevelSample {
   final int level;
 }
 
-class _FrameWaiter {
-  _FrameWaiter(this.expectedFunctions);
-
-  final Set<int> expectedFunctions;
-  final Completer<HmiFrame> completer = Completer<HmiFrame>();
-}
 class _DgusFrame {
   _DgusFrame({required this.command, required this.data});
   final int command;
