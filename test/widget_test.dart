@@ -36,6 +36,6 @@ void main() {
     await tester.pumpWidget(app);
 
     expect(find.text('上位机控制台'), findsOneWidget);
-    expect(find.text('连接与指令'), findsOneWidget);
+    expect(find.text('主控制台'), findsOneWidget);
   });
 }
