@@ -2,3 +2,10 @@
 Future<String> exportLogsToFile(String content) async {
   throw UnsupportedError('Web 平台不支持文件系统导出');
 }
+
+Future<String> appendLogsChunk(
+  String content, {
+  String? existingPath,
+}) async {
+  throw UnsupportedError('Web 平台不支持文件系统自动落盘');
+}

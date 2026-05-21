@@ -132,25 +132,27 @@ flutter pub get
 flutter run -d windows
 ```
 
-## 9. GitHub 自动构建（Windows / Linux / Android）
+## 9. GitHub 自动构建与自动 Tag 发布（全平台）
 
 已新增工作流: `.github/workflows/flutter-multi-platform.yml`
 
 触发规则:
 
-- `push` 到 `main/master`: 仅执行 `analyze + test`
+- `push` 到 `main/master`: 执行 `analyze + test`，并自动创建时间标签：`v0.0.3-YYYYMMDD-HHMMSS`
 - `pull_request` 到 `main/master`: 仅执行 `analyze + test`
-- 打 `v*` 标签（如 `v1.0.0`）: 执行三端构建、上传产物，并自动创建 GitHub Release
-- `workflow_dispatch` 手动触发: 执行三端构建并上传产物
+- 打 `v*` 标签（如 `v0.0.3`）: 执行全平台构建、上传产物，并自动创建 GitHub Release
+- `workflow_dispatch` 手动触发: 执行全平台构建并上传产物（同时可进入发布流程）
 
 产物:
 
 - Windows: `windows-release`
 - Linux: `linux-release`
+- macOS: `macos-release`
 - Android: `android-debug-apk`（`app-debug.apk`）
+- Web: `web-release`
 
 说明:
 
 - Android 当前默认输出 `debug APK`，无需签名密钥即可在 CI 生成。
 - 若后续要发布 `release`，需补充 keystore 与签名配置（建议通过 GitHub Secrets 注入）。
-- 仅 `v*` 标签触发会发布到 GitHub `Releases` 页面；手动触发仅上传 Actions Artifacts。
+- 自动标签与手工 `v*` 标签都会发布到 GitHub `Releases` 页面。

@@ -1864,7 +1864,6 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                   : ListView(
                       children: controller.logs
                           .where((e) => e.portLabel.contains('端口 B'))
-                          .take(15)
                           .map(
                             (e) => Padding(
                               padding: const EdgeInsets.symmetric(vertical: 2),
@@ -2197,9 +2196,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                       ),
                     )
                   : ListView.builder(
-                      itemCount: controller.logs.length > 30
-                          ? 30
-                          : controller.logs.length,
+                      itemCount: controller.logs.length,
                       itemBuilder: (_, i) {
                         final item = controller.logs[i];
                         return Padding(
@@ -2827,9 +2824,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                         ),
                       )
                     : ListView.builder(
-                        itemCount: controller.logs.length > 200
-                            ? 200
-                            : controller.logs.length,
+                        itemCount: controller.logs.length,
                         itemBuilder: (_, i) {
                           final item = controller.logs[i];
                           return Padding(

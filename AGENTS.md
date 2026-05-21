@@ -105,6 +105,10 @@
   - 小屏自动切换紧凑布局（菜单/表单/日志区域）
   - 长文本必须 `ellipsis` 或换行
   - 日志区使用 `Expanded/Flexible`，不得写死高度
+- 日志策略（长期追踪）:
+  - 不对内存日志做固定 200 条自动清除
+  - 日志输出需包含完整时间标签（`yyyy-MM-dd HH:mm:ss.SSS`）
+  - 协议日志展示优先使用多行结构（时间/方向行与内容行分离），便于检索 RX/TX
 
 ## 7. Historical Pitfalls to Avoid
 
@@ -129,4 +133,7 @@
   - `.vscode/launch.json`
   - `CMakePresets.json`
   - `README.md` 的 VSCode/CMake 章节
+- 变更 CI 发布流程时同步更新:
+  - `.github/workflows/flutter-multi-platform.yml`
+  - `README.md` 的 GitHub Actions 章节（触发规则、产物平台、Tag 规则）
 - 新增稳定结论后，回写本文件，避免知识只留在聊天记录

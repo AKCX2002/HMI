@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
@@ -6,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../core/protocol/crc_algorithm.dart';
 import '../../core/protocol/hmi_frame.dart';
 import '../../core/serial/serial_transport.dart';
+import '../../util/log_exporter.dart';
 import 'hmi_port_config.dart';
 import 'hmi_protocol.dart';
 
@@ -30,14 +32,14 @@ class HmiLogEntry {
 
   String get pretty {
     final port = portLabel.isNotEmpty ? ' [$portLabel]' : '';
-    final base =
-        '${DateFormat('HH:mm:ss.SSS').format(timestamp)}$port [$direction] '
-        'ADDR=0x${toHex2(frame.address)} FUNC=0x${toHex2(frame.function)} '
-        'DATA=${payloadToHex(frame.data)}';
-    final decodePart = ' ${decoded.title} ${decoded.summary}';
+    final timeTag = DateFormat('yyyy-MM-dd HH:mm:ss.SSS').format(timestamp);
+    final base = '[$timeTag]$port [$direction]';
+    final payloadLine =
+        'ADDR=0x${toHex2(frame.address)} FUNC=0x${toHex2(frame.function)} DATA=${payloadToHex(frame.data)}';
+    final decodePart = '${decoded.title} ${decoded.summary}';
     final attemptPart = attempt == null ? '' : ' (尝试#$attempt)';
     final notePart = note == null ? '' : ' [$note]';
-    return '$base$decodePart$attemptPart$notePart';
+    return '$base\n$payloadLine\n$decodePart$attemptPart$notePart';
   }
 }
 
@@ -164,10 +166,14 @@ class HmiController extends ChangeNotifier {
   StreamSubscription<Uint8List>? _subscriptionA;
   StreamSubscription<Uint8List>? _subscriptionB;
 
+  static const int _diskFlushBatchSize = 40;
+  static const int _maxInMemoryLogs = 5000;
   final List<HmiLogEntry> _logs = <HmiLogEntry>[];
-  List<HmiLogEntry> _logsCache = const <HmiLogEntry>[];
-  bool _logsCacheDirty = true;
   final List<StackLevelSample> _stackLevelSamples = <StackLevelSample>[];
+  final StringBuffer _diskLogBuffer = StringBuffer();
+  int _pendingDiskLogLines = 0;
+  bool _diskFlushInProgress = false;
+  String? _rollingLogPath;
 
   Future<void> _txChain = Future<void>.value();
 
@@ -198,13 +204,7 @@ class HmiController extends ChangeNotifier {
 
   String? get statusMessage => _statusMessage;
   HmiRetryPolicy get retryPolicy => _retryPolicy;
-  List<HmiLogEntry> get logs {
-    if (_logsCacheDirty) {
-      _logsCache = List<HmiLogEntry>.unmodifiable(_logs.reversed);
-      _logsCacheDirty = false;
-    }
-    return _logsCache;
-  }
+  List<HmiLogEntry> get logs => List<HmiLogEntry>.unmodifiable(_logs);
   List<StackLevelSample> get stackLevelSamples =>
       List<StackLevelSample>.unmodifiable(_stackLevelSamples);
 
@@ -877,7 +877,8 @@ class HmiController extends ChangeNotifier {
 
   void clearLogs() {
     _logs.clear();
-    _logsCacheDirty = true;
+    _diskLogBuffer.clear();
+    _pendingDiskLogLines = 0;
     notifyListeners();
   }
 
@@ -1015,23 +1016,18 @@ class HmiController extends ChangeNotifier {
     int? attempt,
     String portLabel = '',
   }) {
-    _logs.add(
-      HmiLogEntry(
-        direction: direction,
-        frame: frame,
-        timestamp: DateTime.now(),
-        decoded: decodeHmiFrame(frame, direction: direction),
-        note: note,
-        attempt: attempt,
-        portLabel: portLabel,
-      ),
+    final entry = HmiLogEntry(
+      direction: direction,
+      frame: frame,
+      timestamp: DateTime.now(),
+      decoded: decodeHmiFrame(frame, direction: direction),
+      note: note,
+      attempt: attempt,
+      portLabel: portLabel,
     );
-    // 按时间顺序存储，UI 层通过 getter 逆序展示。超过上限时从头部丢弃。
-    const maxLogs = 200;
-    if (_logs.length > maxLogs) {
-      _logs.removeAt(0);
-    }
-    _logsCacheDirty = true;
+    _logs.insert(0, entry);
+    _trimInMemoryLogsIfNeeded();
+    _enqueueLogLineForDisk(_toJsonLine(entry));
   }
 
   /// 追加 DGUS 协议日志条目（由变量帧解析而来）。
@@ -1047,24 +1043,70 @@ class HmiController extends ChangeNotifier {
       }
     }
 
-    _logs.add(
-      HmiLogEntry(
-        direction: 'LOG',
-        frame: _dgusPlaceholder,
-        timestamp: DateTime.now(),
-        decoded: HmiDecodedFrame(
-          title: 'DGUS日志',
-          summary: text,
-          rawDataHex: '',
-        ),
-        portLabel: portLabel,
-      ),
+    final entry = HmiLogEntry(
+      direction: 'LOG',
+      frame: _dgusPlaceholder,
+      timestamp: DateTime.now(),
+      decoded: HmiDecodedFrame(title: 'DGUS日志', summary: text, rawDataHex: ''),
+      portLabel: portLabel,
     );
-    const maxLogs = 200;
-    if (_logs.length > maxLogs) {
-      _logs.removeAt(0);
+    _logs.insert(0, entry);
+    _trimInMemoryLogsIfNeeded();
+    _enqueueLogLineForDisk(_toJsonLine(entry));
+  }
+
+  void _trimInMemoryLogsIfNeeded() {
+    if (_logs.length > _maxInMemoryLogs) {
+      _logs.removeRange(_maxInMemoryLogs, _logs.length);
     }
-    _logsCacheDirty = true;
+  }
+
+  String _toJsonLine(HmiLogEntry entry) {
+    final payloadHex = payloadToHex(entry.frame.data);
+    final Map<String, dynamic> obj = <String, dynamic>{
+      'ts': entry.timestamp.toIso8601String(),
+      'port': entry.portLabel,
+      'direction': entry.direction,
+      'address': entry.frame.address,
+      'function': entry.frame.function,
+      'payload_hex': payloadHex,
+      'decoded_title': entry.decoded.title,
+      'decoded_summary': entry.decoded.summary,
+      'decoded_raw_hex': entry.decoded.rawDataHex,
+      'attempt': entry.attempt,
+      'note': entry.note,
+      'pretty': entry.pretty,
+    };
+    return '${jsonEncode(obj)}\n';
+  }
+
+  void _enqueueLogLineForDisk(String line) {
+    _diskLogBuffer.write(line);
+    _pendingDiskLogLines++;
+    if (_pendingDiskLogLines >= _diskFlushBatchSize) {
+      unawaited(_flushLogsToDisk());
+    }
+  }
+
+  Future<void> _flushLogsToDisk() async {
+    if (_diskFlushInProgress || _pendingDiskLogLines == 0) {
+      return;
+    }
+    _diskFlushInProgress = true;
+    final chunk = _diskLogBuffer.toString();
+    _diskLogBuffer.clear();
+    _pendingDiskLogLines = 0;
+    try {
+      _rollingLogPath = await appendLogsChunk(chunk, existingPath: _rollingLogPath);
+    } catch (_) {
+      // Web/权限受限平台自动忽略，保持主流程稳定。
+      // 下次仍可继续尝试写盘。
+    } finally {
+      _diskFlushInProgress = false;
+      if (_pendingDiskLogLines > 0) {
+        unawaited(_flushLogsToDisk());
+      }
+    }
   }
 
   static final HmiFrame _dgusPlaceholder = HmiFrame(
@@ -1113,6 +1155,7 @@ class HmiController extends ChangeNotifier {
 
   @override
   void dispose() {
+    unawaited(_flushLogsToDisk());
     try {
       _subscriptionA?.cancel();
     } catch (e) {
