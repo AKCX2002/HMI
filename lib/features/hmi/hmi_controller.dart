@@ -1116,25 +1116,22 @@ class HmiController extends ChangeNotifier {
   );
   
   int? _parseStackLevelFromLog(String text) {
-    final patterns = <RegExp>[
-      RegExp(r'(?:栈水位|stack[_\s-]?level|water[_\s-]?level)\s*[:=]\s*(0x[0-9a-fA-F]+|\d+)', caseSensitive: false),
-      RegExp(r'(?:栈水位|stack[_\s-]?level|water[_\s-]?level)\s+(0x[0-9a-fA-F]+|\d+)', caseSensitive: false),
-    ];
-    for (final pattern in patterns) {
-      final m = pattern.firstMatch(text);
-      if (m == null) {
-        continue;
-      }
-      final raw = (m.group(1) ?? '').trim();
-      if (raw.isEmpty) {
-        continue;
-      }
-      if (raw.startsWith('0x') || raw.startsWith('0X')) {
-        return int.tryParse(raw.substring(2), radix: 16);
-      }
-      return int.tryParse(raw);
+    final match = RegExp(
+      r'\bSTACK_LEVEL\s*=\s*(0x[0-9a-fA-F]+|\d+)\b',
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (match == null) {
+      return null;
     }
-    return null;
+
+    final raw = (match.group(1) ?? '').trim();
+    if (raw.isEmpty) {
+      return null;
+    }
+    if (raw.startsWith('0x') || raw.startsWith('0X')) {
+      return int.tryParse(raw.substring(2), radix: 16);
+    }
+    return int.tryParse(raw);
   }
 
   String? _decodeDgusLogLine(_DgusFrame frame) {
