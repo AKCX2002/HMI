@@ -206,10 +206,7 @@ class StackStatsCollector {
     String normalized = text.trim();
 
     while (true) {
-      final next = normalized.replaceFirst(
-        RegExp(r'^\[(?:I|W|E|D)\]\s*'),
-        '',
-      );
+      final next = normalized.replaceFirst(RegExp(r'^\[(?:I|W|E|D)\]\s*'), '');
       if (next == normalized) {
         break;
       }
@@ -230,7 +227,7 @@ class StackStatsCollector {
   }
 
   StackSnapshot? _buildSnapshot(DateTime timestamp) {
-    if (_records.length != kKnownStackTaskNames.length) {
+    if (_records.isEmpty) {
       return null;
     }
 
@@ -238,7 +235,7 @@ class StackStatsCollector {
     for (final name in kKnownStackTaskNames) {
       final record = _records[name];
       if (record == null) {
-        return null;
+        continue; // 部分快照：收到的任务才纳入
       }
       final usedWords = record.totalWords - record.freeWords;
       final usedRatio = record.totalWords == 0
@@ -273,7 +270,8 @@ class StackStatsCollector {
 
     final orderedTasks = <StackTaskSnapshot>[
       for (final name in kKnownStackTaskNames)
-        tasks.firstWhere((task) => task.name == name),
+        if (_records.containsKey(name))
+          tasks.firstWhere((task) => task.name == name),
     ];
 
     return StackSnapshot(

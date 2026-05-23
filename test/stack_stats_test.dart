@@ -78,7 +78,10 @@ void main() {
       final collector = StackStatsCollector();
       final now = DateTime(2026, 5, 23, 12, 0, 0);
 
-      expect(collector.addLogLine('[I] STACK_SNAPSHOT_BEGIN', timestamp: now), isNull);
+      expect(
+        collector.addLogLine('[I] STACK_SNAPSHOT_BEGIN', timestamp: now),
+        isNull,
+      );
       expect(
         collector.addLogLine(
           '[I] STACK_TASK NAME=ProtoTask TOTAL=384 FREE=320',
@@ -205,7 +208,7 @@ void main() {
       expect(snapshot!.tasks, hasLength(7));
     });
 
-    test('缺少任务时整份快照丢弃', () {
+    test('缺少任务时输出部分快照', () {
       final collector = StackStatsCollector();
       final now = DateTime(2026, 5, 23, 12, 0, 0);
 
@@ -215,10 +218,13 @@ void main() {
         timestamp: now,
       );
 
-      expect(
-        collector.addLogLine('STACK_SNAPSHOT_END', timestamp: now),
-        isNull,
+      final snapshot = collector.addLogLine(
+        'STACK_SNAPSHOT_END',
+        timestamp: now,
       );
+      expect(snapshot, isNotNull);
+      expect(snapshot!.tasks, hasLength(1));
+      expect(snapshot.tasks.first.name, 'ProtoTask');
     });
 
     test('未知任务名被忽略但不污染已知任务', () {

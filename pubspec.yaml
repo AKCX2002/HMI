@@ -30,10 +30,13 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  archive: ^4.0.7
   cupertino_icons: ^1.0.8
+  file_selector: ^1.0.3
   flutter_libserialport: ^0.6.0
   google_fonts: ^8.1.0
   intl: ^0.20.2
+  path_provider: ^2.1.5
 
 dev_dependencies:
   flutter_test:

@@ -366,7 +366,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
   ),
 
   // ══════════════════════════════════════════════════════════════════
-  //  压杆机械尺寸 (ID 0x48~0x4D, DGUS 0x2070~0x207A)
+  //  压杆机械尺寸 (ID 0x48~0x4E, DGUS 0x2070~0x207C)
   // ══════════════════════════════════════════════════════════════════
   HmiParamDef(
     id: 0x48,
@@ -422,6 +422,15 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     dgusAddr: 0x207A,
     group: '压杆机械尺寸',
   ),
+  HmiParamDef(
+    id: 0x4E,
+    name: '扒口角度',
+    unit: '0.1°',
+    min: 50,
+    max: 3500,
+    dgusAddr: 0x207C,
+    group: '压杆机械尺寸',
+  ),
 
   // ══════════════════════════════════════════════════════════════════
   //  加热/打印机 (ID 0x50~0x54, DGUS 0x2080~0x2088)
@@ -438,9 +447,9 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
   HmiParamDef(
     id: 0x51,
     name: '加热占空比',
-    unit: '%',
+    unit: '‰',
     min: 0,
-    max: 100,
+    max: 1000,
     dgusAddr: 0x2082,
     group: '加热/打印机',
   ),

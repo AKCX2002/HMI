@@ -33,7 +33,7 @@ enum HmiPackerFunction {
 class HmiRetryPolicy {
   const HmiRetryPolicy({
     this.maxRetries = 1,
-    this.timeoutMs = 1200,
+    this.timeoutMs = 3000,
     this.retryIntervalMs = 200,
   });
 
@@ -172,22 +172,19 @@ HmiDecodedFrame decodeHmiFrameTx(HmiFrame frame) {
     case 0x42:
       return HmiDecodedFrame(
         title: '出袋触发请求(0x42)',
-        summary:
-            'Y1=操作:${_actionName(d[0])} Y2=清除标志:${d[1] == 0 ? "是" : "否"}',
+        summary: 'Y1=操作:${_actionName(d[0])} Y2=清除标志:${d[1] == 0 ? "是" : "否"}',
         rawDataHex: raw,
       );
     case 0x43:
       return HmiDecodedFrame(
         title: '封口触发请求(0x43)',
-        summary:
-            'Y1=操作:${_actionName(d[0])} Y2=清除标志:${d[1] == 0 ? "是" : "否"}',
+        summary: 'Y1=操作:${_actionName(d[0])} Y2=清除标志:${d[1] == 0 ? "是" : "否"}',
         rawDataHex: raw,
       );
     case 0x44:
       return HmiDecodedFrame(
         title: '投料触发请求(0x44)',
-        summary:
-            'Y1=操作:${_actionName(d[0])} Y2=清除标志:${d[1] == 0 ? "是" : "否"}',
+        summary: 'Y1=操作:${_actionName(d[0])} Y2=清除标志:${d[1] == 0 ? "是" : "否"}',
         rawDataHex: raw,
       );
     case 0x45:

@@ -67,6 +67,16 @@ class StackLevelSample {
   final int level;
 }
 
+class HmiLogBundleManifest {
+  const HmiLogBundleManifest({
+    required this.rollingLogPath,
+    required this.rollingStackLogPath,
+  });
+
+  final String? rollingLogPath;
+  final String? rollingStackLogPath;
+}
+
 class _DgusFrame {
   _DgusFrame({required this.command, required this.data});
   final int command;
@@ -220,6 +230,8 @@ class HmiController extends ChangeNotifier {
       List<StackLevelSample>.unmodifiable(_stackLevelSamples);
   List<StackSnapshot> get stackSnapshots =>
       List<StackSnapshot>.unmodifiable(_stackSnapshots);
+  String? get rollingLogPath => _rollingLogPath;
+  String? get rollingStackLogPath => _rollingStackLogPath;
   Map<String, StackTaskStats> get stackTaskStats =>
       Map<String, StackTaskStats>.unmodifiable(_stackTaskStats);
   StackSnapshot? get latestStackSnapshot => _latestStackSnapshot;
@@ -1173,6 +1185,15 @@ class HmiController extends ChangeNotifier {
         unawaited(_flushStackSnapshotsToDisk());
       }
     }
+  }
+
+  Future<HmiLogBundleManifest> prepareLogBundleManifest() async {
+    await _flushLogsToDisk();
+    await _flushStackSnapshotsToDisk();
+    return HmiLogBundleManifest(
+      rollingLogPath: _rollingLogPath,
+      rollingStackLogPath: _rollingStackLogPath,
+    );
   }
 
   static final HmiFrame _dgusPlaceholder = HmiFrame(

@@ -113,6 +113,8 @@
   - 不对内存日志做固定 200 条自动清除
   - 日志输出需包含完整时间标签（`yyyy-MM-dd HH:mm:ss.SSS`）
   - 协议日志展示优先使用多行结构（时间/方向行与内容行分离），便于检索 RX/TX
+  - Android 自动落盘走应用私有目录，不再直接写公共 `Download`
+  - 手动导出使用系统“另存为”，并将当前协议日志文本、原始滚动日志 `jsonl`、栈统计 `jsonl` 打成一个 `zip`
 
 ## 7. Historical Pitfalls to Avoid
 

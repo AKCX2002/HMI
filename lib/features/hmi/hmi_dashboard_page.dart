@@ -1920,10 +1920,32 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
 
   /// 导出日志到文件（PC/Android 保存到文件，Web 回退到剪贴板）。
   Future<void> _exportLogs(HmiController controller) async {
-    final text = _buildLogText(controller);
-
     try {
-      final path = await exportLogsToFile(text);
+      final manifest = await controller.prepareLogBundleManifest();
+      final sourceFiles = <LogBundleSourceFile>[
+        if (manifest.rollingLogPath != null &&
+            manifest.rollingLogPath!.isNotEmpty)
+          LogBundleSourceFile(
+            archiveName: 'raw/hmi_live_log.jsonl',
+            path: manifest.rollingLogPath!,
+          ),
+        if (manifest.rollingStackLogPath != null &&
+            manifest.rollingStackLogPath!.isNotEmpty)
+          LogBundleSourceFile(
+            archiveName: 'raw/hmi_stack_stats.jsonl',
+            path: manifest.rollingStackLogPath!,
+          ),
+      ];
+      final path = await exportLogBundle(
+        bundleBaseName: 'hmi_logs',
+        textFiles: <LogBundleTextFile>[
+          LogBundleTextFile(
+            name: 'protocol_logs.txt',
+            content: _buildLogText(controller),
+          ),
+        ],
+        sourceFiles: sourceFiles,
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1932,7 +1954,17 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
           ),
         );
       }
+    } on LogExportCancelledException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('已取消导出'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
     } on UnsupportedError {
+      final text = _buildLogText(controller);
       await Clipboard.setData(ClipboardData(text: text));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1943,11 +1975,12 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
         );
       }
     } catch (e) {
+      final text = _buildLogText(controller);
       await Clipboard.setData(ClipboardData(text: text));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('文件保存失败 ($e)，日志已复制到剪贴板'),
+            content: Text('日志打包保存失败 ($e)，内容已复制到剪贴板'),
             duration: const Duration(seconds: 4),
           ),
         );
@@ -1995,7 +2028,10 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
       setState(() => _dbusStatus = '参数 0x${toHex2(paramId)} = $result');
     } else {
       setState(() {
-        _dbusStatus = '参数 0x${toHex2(paramId)} 读取失败';
+        _dbusStatus = _formatDgusParamFailure(
+          controller,
+          '参数 0x${toHex2(paramId)} 读取失败',
+        );
         _dbusReadResult = null;
       });
     }
@@ -2018,7 +2054,10 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
       setState(() => _dbusStatus = '写入成功: 参数 0x${toHex2(paramId)} = $result');
     } else {
       setState(() {
-        _dbusStatus = '参数 0x${toHex2(paramId)} 写入失败';
+        _dbusStatus = _formatDgusParamFailure(
+          controller,
+          '参数 0x${toHex2(paramId)} 写入失败',
+        );
         _dbusReadResult = null;
       });
     }
@@ -2576,7 +2615,15 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
       setState(() {
         _paramValues[paramId] = value;
         _paramEditors[paramId]?.text = value.toString();
+        _paramsStatus = '参数 0x${toHex2(paramId)} 读取成功 → $value';
       });
+    } else {
+      setState(
+        () => _paramsStatus = _formatDgusParamFailure(
+          controller,
+          '参数 0x${toHex2(paramId)} 读取失败',
+        ),
+      );
     }
   }
 
@@ -2612,8 +2659,24 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
         _paramsStatus = '${param.name}: 写入成功 → $result ${param.unit}';
       });
     } else {
-      setState(() => _paramsStatus = '${param.name}: 写入失败');
+      setState(
+        () => _paramsStatus = _formatDgusParamFailure(
+          controller,
+          '${param.name}: 写入失败',
+        ),
+      );
     }
+  }
+
+  String _formatDgusParamFailure(HmiController controller, String prefix) {
+    final detail = controller.statusMessage?.trim();
+    if (detail == null || detail.isEmpty) {
+      return '$prefix（可能为门禁锁定、串口未连通或超时）';
+    }
+    if (detail.contains('超时')) {
+      return '$prefix（$detail，可能为门禁锁定或串口未连通）';
+    }
+    return '$prefix（$detail）';
   }
 
   /// 批量读取全部参数
