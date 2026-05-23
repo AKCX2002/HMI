@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hmi_host/core/protocol/hmi_frame.dart';
 import 'package:hmi_host/core/serial/serial_transport.dart';
 import 'package:hmi_host/features/hmi/hmi_controller.dart';
+import 'package:hmi_host/features/hmi/hmi_param_config.dart';
 
 class _FakeSerialTransport implements SerialTransport {
   final StreamController<Uint8List> _incoming =
@@ -19,7 +20,10 @@ class _FakeSerialTransport implements SerialTransport {
   Future<List<String>> availablePorts() async => <String>['FAKE'];
 
   @override
-  Future<void> connect({required String portName, required int baudRate}) async {
+  Future<void> connect({
+    required String portName,
+    required int baudRate,
+  }) async {
     _connected = true;
   }
 
@@ -43,12 +47,42 @@ class _FakeSerialTransport implements SerialTransport {
 }
 
 void main() {
+  test('加热参数映射包含占空比周期与占空比', () async {
+    final heaterPeriod = findParamDef(0x50);
+    final heaterDuty = findParamDef(0x51);
+
+    expect(heaterPeriod, isNotNull);
+    expect(heaterPeriod!.name, '加热占空比周期');
+    expect(heaterPeriod.unit, 'ms');
+    expect(heaterPeriod.min, 100);
+    expect(heaterPeriod.max, 10000);
+    expect(heaterPeriod.dgusAddr, 0x2080);
+
+    expect(heaterDuty, isNotNull);
+    expect(heaterDuty!.name, '加热占空比');
+    expect(heaterDuty.unit, '%');
+    expect(heaterDuty.min, 0);
+    expect(heaterDuty.max, 100);
+    expect(heaterDuty.dgusAddr, 0x2082);
+  });
+
   test('端口 A 只解析 20 字节主协议，不消费 DGUS 日志帧', () async {
     final transportA = _FakeSerialTransport();
     final transportB = _FakeSerialTransport();
     final controller = HmiController(transportA, transportB: transportB);
 
-    transportA.emit(<int>[0x5A, 0xA5, 0x07, 0x82, 0x30, 0x00, 0x48, 0x49, 0x00, 0x00]);
+    transportA.emit(<int>[
+      0x5A,
+      0xA5,
+      0x07,
+      0x82,
+      0x30,
+      0x00,
+      0x48,
+      0x49,
+      0x00,
+      0x00,
+    ]);
     await Future<void>.delayed(Duration.zero);
 
     expect(controller.logs, isEmpty);
@@ -84,11 +118,26 @@ void main() {
     final transportB = _FakeSerialTransport();
     final controller = HmiController(transportA, transportB: transportB);
 
-    transportB.emit(<int>[0x5A, 0xA5, 0x08, 0x83, 0x20, 0x00, 0x02, 0x00, 0x00, 0x30, 0x39]);
+    transportB.emit(<int>[
+      0x5A,
+      0xA5,
+      0x08,
+      0x83,
+      0x20,
+      0x00,
+      0x02,
+      0x00,
+      0x00,
+      0x30,
+      0x39,
+    ]);
     await Future<void>.delayed(Duration.zero);
 
     expect(controller.logs, hasLength(1));
-    expect(controller.logs.first.decoded.summary, 'DGUS RX 5A A5 08 83 20 00 02 00 00 30 39');
+    expect(
+      controller.logs.first.decoded.summary,
+      'DGUS RX 5A A5 08 83 20 00 02 00 00 30 39',
+    );
 
     controller.dispose();
     await transportA.dispose();
@@ -100,11 +149,25 @@ void main() {
     final transportB = _FakeSerialTransport();
     final controller = HmiController(transportA, transportB: transportB);
 
-    transportB.emit(<int>[0x5A, 0xA5, 0x07, 0x82, 0x30, 0x00, 0x48, 0x49, 0x00, 0x00]);
+    transportB.emit(<int>[
+      0x5A,
+      0xA5,
+      0x07,
+      0x82,
+      0x30,
+      0x00,
+      0x48,
+      0x49,
+      0x00,
+      0x00,
+    ]);
     await Future<void>.delayed(Duration.zero);
 
     expect(controller.logs, hasLength(2));
-    expect(controller.logs[1].decoded.summary, 'DGUS RX 5A A5 07 82 30 00 48 49 00 00');
+    expect(
+      controller.logs[1].decoded.summary,
+      'DGUS RX 5A A5 07 82 30 00 48 49 00 00',
+    );
     expect(controller.logs[0].decoded.summary, 'HI');
 
     controller.dispose();

@@ -29,9 +29,8 @@ class HmiParamDef {
 
 /// 全部运行时参数定义表 (与固件 `packer_runtime_config_id_t` 一一对应)
 const List<HmiParamDef> kParamDefs = <HmiParamDef>[
-
   // ══════════════════════════════════════════════════════════════════
-//  步进运动参数 (ID 0x10~0x17, DGUS 0x2000~0x200E)
+  //  步进运动参数 (ID 0x10~0x17, DGUS 0x2000~0x200E)
   // ══════════════════════════════════════════════════════════════════
   HmiParamDef(
     id: 0x10,
@@ -425,11 +424,11 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
   ),
 
   // ══════════════════════════════════════════════════════════════════
-  //  加热/打印机 (ID 0x50~0x53, DGUS 0x2080~0x2086)
+  //  加热/打印机 (ID 0x50~0x54, DGUS 0x2080~0x2088)
   // ══════════════════════════════════════════════════════════════════
   HmiParamDef(
     id: 0x50,
-    name: '加热翻转周期',
+    name: '加热占空比周期',
     unit: 'ms',
     min: 100,
     max: 10000,
@@ -438,65 +437,65 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
   ),
   HmiParamDef(
     id: 0x51,
-    name: '打印机联动开关',
-    unit: '',
+    name: '加热占空比',
+    unit: '%',
     min: 0,
-    max: 1,
+    max: 100,
     dgusAddr: 0x2082,
     group: '加热/打印机',
   ),
   HmiParamDef(
     id: 0x52,
-    name: '打印触发出袋长度',
-    unit: '0.001mm',
+    name: '打印机联动开关',
+    unit: '',
     min: 0,
-    max: 1000000,
+    max: 1,
     dgusAddr: 0x2084,
     group: '加热/打印机',
   ),
   HmiParamDef(
     id: 0x53,
+    name: '打印触发出袋长度',
+    unit: '0.001mm',
+    min: 0,
+    max: 1000000,
+    dgusAddr: 0x2086,
+    group: '加热/打印机',
+  ),
+  HmiParamDef(
+    id: 0x54,
     name: '打印机发送超时',
     unit: 'ms',
     min: 1,
     max: 1000,
-    dgusAddr: 0x2086,
+    dgusAddr: 0x2088,
     group: '加热/打印机',
   ),
 
   // ══════════════════════════════════════════════════════════════════
-  //  功率采样/限制预留 (ID 0x54~0x62, DGUS 0x2088~0x20A4)
+  //  功率采样/限制预留 (ID 0x55~0x63, DGUS 0x208A~0x20A6)
   // ══════════════════════════════════════════════════════════════════
   HmiParamDef(
-    id: 0x54,
+    id: 0x55,
     name: '功率估算母线电压',
     unit: 'mV',
     min: 0,
     max: 50000,
-    dgusAddr: 0x2088,
-    group: '功率限制',
-  ),
-  HmiParamDef(
-    id: 0x55,
-    name: '功率限制开关',
-    unit: '',
-    min: 0,
-    max: 1,
     dgusAddr: 0x208A,
     group: '功率限制',
   ),
   HmiParamDef(
     id: 0x56,
-    name: '总功率上限',
-    unit: 'mW',
+    name: '功率限制开关',
+    unit: '',
     min: 0,
-    max: 500000000,
+    max: 1,
     dgusAddr: 0x208C,
     group: '功率限制',
   ),
   HmiParamDef(
     id: 0x57,
-    name: '功率限制释放阈值',
+    name: '总功率上限',
     unit: 'mW',
     min: 0,
     max: 500000000,
@@ -505,25 +504,25 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
   ),
   HmiParamDef(
     id: 0x58,
-    name: '滤波窗口长度',
-    unit: '',
-    min: 1,
-    max: 64,
+    name: '功率限制释放阈值',
+    unit: 'mW',
+    min: 0,
+    max: 500000000,
     dgusAddr: 0x2090,
     group: '功率限制',
   ),
   HmiParamDef(
     id: 0x59,
-    name: '电机1画像功率',
-    unit: 'mW',
-    min: 0,
-    max: 500000,
+    name: '滤波窗口长度',
+    unit: '',
+    min: 1,
+    max: 64,
     dgusAddr: 0x2092,
     group: '功率限制',
   ),
   HmiParamDef(
     id: 0x5A,
-    name: '电机2画像功率',
+    name: '电机1画像功率',
     unit: 'mW',
     min: 0,
     max: 500000,
@@ -532,7 +531,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
   ),
   HmiParamDef(
     id: 0x5B,
-    name: '加热画像功率',
+    name: '电机2画像功率',
     unit: 'mW',
     min: 0,
     max: 500000,
@@ -541,7 +540,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
   ),
   HmiParamDef(
     id: 0x5C,
-    name: '风机画像功率',
+    name: '加热画像功率',
     unit: 'mW',
     min: 0,
     max: 500000,
@@ -550,7 +549,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
   ),
   HmiParamDef(
     id: 0x5D,
-    name: '传送带画像功率',
+    name: '风机画像功率',
     unit: 'mW',
     min: 0,
     max: 500000,
@@ -559,7 +558,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
   ),
   HmiParamDef(
     id: 0x5E,
-    name: '预留继电器画像功率',
+    name: '传送带画像功率',
     unit: 'mW',
     min: 0,
     max: 500000,
@@ -568,16 +567,16 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
   ),
   HmiParamDef(
     id: 0x5F,
-    name: '出袋动态限位',
+    name: '预留继电器画像功率',
     unit: 'mW',
     min: 0,
-    max: 500000000,
+    max: 500000,
     dgusAddr: 0x209E,
     group: '功率限制',
   ),
   HmiParamDef(
     id: 0x60,
-    name: '封口动态限位',
+    name: '出袋动态限位',
     unit: 'mW',
     min: 0,
     max: 500000000,
@@ -586,7 +585,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
   ),
   HmiParamDef(
     id: 0x61,
-    name: '复位动态限位',
+    name: '封口动态限位',
     unit: 'mW',
     min: 0,
     max: 500000000,
@@ -595,11 +594,20 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
   ),
   HmiParamDef(
     id: 0x62,
-    name: '自检动态限位',
+    name: '复位动态限位',
     unit: 'mW',
     min: 0,
     max: 500000000,
     dgusAddr: 0x20A4,
+    group: '功率限制',
+  ),
+  HmiParamDef(
+    id: 0x63,
+    name: '自检动态限位',
+    unit: 'mW',
+    min: 0,
+    max: 500000000,
+    dgusAddr: 0x20A6,
     group: '功率限制',
   ),
 
