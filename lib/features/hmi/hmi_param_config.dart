@@ -290,44 +290,9 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
   ),
 
   // ══════════════════════════════════════════════════════════════════
-  //  出袋机械尺寸 (ID 0x40~0x47, DGUS 0x2060~0x206E)
+  //  0x40~0x43: 已移除，出袋机械固定参数改为固件编译期 APP_CFG_BAG_* 宏
+  //  出袋运行参数 (ID 0x44~0x47, DGUS 0x2068~0x206E)
   // ══════════════════════════════════════════════════════════════════
-  HmiParamDef(
-    id: 0x40,
-    name: '出袋电机脉冲/圈',
-    unit: 'PUL',
-    min: 200,
-    max: 100000,
-    dgusAddr: 0x2060,
-    group: '出袋机械尺寸',
-  ),
-  HmiParamDef(
-    id: 0x41,
-    name: '出袋滚轴直径',
-    unit: '0.001mm',
-    min: 1000,
-    max: 200000,
-    dgusAddr: 0x2062,
-    group: '出袋机械尺寸',
-  ),
-  HmiParamDef(
-    id: 0x42,
-    name: '出袋主动轮齿数',
-    unit: 'T',
-    min: 1,
-    max: 200,
-    dgusAddr: 0x2064,
-    group: '出袋机械尺寸',
-  ),
-  HmiParamDef(
-    id: 0x43,
-    name: '出袋从动轮齿数',
-    unit: 'T',
-    min: 1,
-    max: 200,
-    dgusAddr: 0x2066,
-    group: '出袋机械尺寸',
-  ),
   HmiParamDef(
     id: 0x44,
     name: '校准回抽长度',
@@ -366,44 +331,9 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
   ),
 
   // ══════════════════════════════════════════════════════════════════
-  //  压杆机械尺寸 (ID 0x48~0x4E, DGUS 0x2070~0x207C)
+  //  0x48~0x4B: 已移除，压杆机械固定参数改为固件编译期 APP_CFG_PRESS_* 宏
+  //  压杆运行参数 (ID 0x4C~0x4E, DGUS 0x2078~0x207C)
   // ══════════════════════════════════════════════════════════════════
-  HmiParamDef(
-    id: 0x48,
-    name: '压杆电机脉冲/圈',
-    unit: 'PUL',
-    min: 200,
-    max: 100000,
-    dgusAddr: 0x2070,
-    group: '压杆机械尺寸',
-  ),
-  HmiParamDef(
-    id: 0x49,
-    name: '压杆主动轮齿数',
-    unit: 'T',
-    min: 1,
-    max: 200,
-    dgusAddr: 0x2072,
-    group: '压杆机械尺寸',
-  ),
-  HmiParamDef(
-    id: 0x4A,
-    name: '压杆从动轮齿数',
-    unit: 'T',
-    min: 1,
-    max: 200,
-    dgusAddr: 0x2074,
-    group: '压杆机械尺寸',
-  ),
-  HmiParamDef(
-    id: 0x4B,
-    name: '压杆同步轮节圆直径',
-    unit: '0.001mm',
-    min: 1000,
-    max: 200000,
-    dgusAddr: 0x2076,
-    group: '压杆机械尺寸',
-  ),
   HmiParamDef(
     id: 0x4C,
     name: '压杆回IN1脉冲保护位移',
