@@ -9,6 +9,7 @@ import '../../util/log_exporter.dart';
 import 'hmi_controller.dart';
 import 'hmi_param_config.dart';
 import 'hmi_protocol.dart';
+import 'stack_stats.dart';
 
 /// HMI 主操作界面。
 ///
@@ -2854,6 +2855,8 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
 
   Widget _buildStackLevelPage(HmiController controller) {
     final samples = controller.stackLevelSamples;
+    final snapshot = controller.latestStackSnapshot;
+    final taskStats = controller.stackTaskStats.values.toList();
     final maxPoints = _safeInt(_stackChartPoints, fallback: 120).clamp(10, 600);
     final points = samples.take(maxPoints).toList().reversed.toList();
     final levels = points.map((e) => e.level).toList();
@@ -2870,35 +2873,128 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
         padding: const EdgeInsets.all(16),
         children: <Widget>[
           _buildCard(
-            title: '栈水位统计与趋势图',
+            title: '任务栈统计总览',
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: <Widget>[
-                    SizedBox(width: 110, child: _textField('显示点数', _stackChartPoints)),
                     _miniBtn('清空样本', true, controller.clearStackLevelSamples),
                   ],
                 ),
                 const SizedBox(height: 12),
-                Row(
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: <Widget>[
-                    Expanded(
-                      child: _stackMetric('样本数', '${samples.length}', const Color(0xFF9EC7FF)),
+                    SizedBox(
+                      width: 220,
+                      child: _stackMetric(
+                        '总栈',
+                        '${snapshot?.summary.totalWords ?? 0}',
+                        const Color(0xFF9EC7FF),
+                      ),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _stackMetric('当前值', '$current', const Color(0xFF9FFFC9)),
+                    SizedBox(
+                      width: 220,
+                      child: _stackMetric(
+                        '当前总已占用',
+                        '${snapshot?.summary.totalUsedWords ?? 0}',
+                        const Color(0xFFFFC978),
+                      ),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _stackMetric('最小/最大', '$minLevel / $maxLevel', const Color(0xFFFFE082)),
+                    SizedBox(
+                      width: 220,
+                      child: _stackMetric(
+                        '当前总剩余',
+                        '${snapshot?.summary.totalFreeWords ?? 0}',
+                        const Color(0xFF9FFFC9),
+                      ),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _stackMetric('平均值', '$avg', const Color(0xFF8ED3FF)),
+                    SizedBox(
+                      width: 220,
+                      child: _stackMetric(
+                        '最危险任务',
+                        snapshot?.summary.riskiestTaskName ?? '-',
+                        const Color(0xFFFF8A80),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                taskStats.isEmpty
+                    ? Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF0B1E3A),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFF2D4F7E)),
+                        ),
+                        child: Text(
+                          '暂无完整任务栈快照，请等待固件输出 STACK_SNAPSHOT。',
+                          style: GoogleFonts.ibmPlexSans(
+                            color: const Color(0xFFA7C7EB),
+                            fontSize: 12,
+                          ),
+                        ),
+                      )
+                    : _buildStackStatsTable(
+                        taskStats,
+                        snapshot?.summary.riskiestTaskName,
+                      ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          _buildCard(
+            title: '最小剩余栈辅助趋势',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: <Widget>[
+                    SizedBox(
+                      width: 110,
+                      child: _textField('显示点数', _stackChartPoints),
+                    ),
+                    SizedBox(
+                      width: 180,
+                      child: _stackMetric(
+                        '样本数',
+                        '${samples.length}',
+                        const Color(0xFF9EC7FF),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 180,
+                      child: _stackMetric(
+                        '当前值',
+                        '$current',
+                        const Color(0xFF9FFFC9),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 180,
+                      child: _stackMetric(
+                        '最小/最大',
+                        '$minLevel / $maxLevel',
+                        const Color(0xFFFFE082),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 180,
+                      child: _stackMetric(
+                        '平均值',
+                        '$avg',
+                        const Color(0xFF8ED3FF),
+                      ),
                     ),
                   ],
                 ),
@@ -2931,6 +3027,109 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
         ],
       ),
     );
+  }
+
+  Widget _buildStackStatsTable(
+    List<StackTaskStats> taskStats,
+    String? riskiestTaskName,
+  ) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: const Color(0xFF0B1E3A),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFF2D4F7E)),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: DataTable(
+          headingRowColor: WidgetStateProperty.all(const Color(0xFF102744)),
+          dataRowMinHeight: 48,
+          dataRowMaxHeight: 64,
+          columns: const <DataColumn>[
+            DataColumn(label: Text('任务名')),
+            DataColumn(label: Text('总栈')),
+            DataColumn(label: Text('当前剩余')),
+            DataColumn(label: Text('当前已占用')),
+            DataColumn(label: Text('占用率')),
+            DataColumn(label: Text('历史最小剩余')),
+            DataColumn(label: Text('历史最大占用')),
+            DataColumn(label: Text('更新时间')),
+          ],
+          rows: taskStats.map<DataRow>((StackTaskStats stat) {
+            final isRisk = stat.name == riskiestTaskName;
+            final nameColor = isRisk
+                ? const Color(0xFFFF8A80)
+                : const Color(0xFFE6F2FF);
+            final valueColor = stat.freeWords <= 200
+                ? const Color(0xFFFFB74D)
+                : const Color(0xFF9FFFC9);
+            return DataRow(
+              color: WidgetStateProperty.all(
+                isRisk ? const Color(0x221B91D8) : Colors.transparent,
+              ),
+              cells: <DataCell>[
+                DataCell(
+                  Text(
+                    stat.name,
+                    style: GoogleFonts.ibmPlexSans(
+                      color: nameColor,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                DataCell(
+                  _monoCell('${stat.totalWords}', const Color(0xFF9EC7FF)),
+                ),
+                DataCell(_monoCell('${stat.freeWords}', valueColor)),
+                DataCell(
+                  _monoCell('${stat.usedWords}', const Color(0xFFFFE082)),
+                ),
+                DataCell(
+                  _monoCell(
+                    '${(stat.usedRatio * 100.0).toStringAsFixed(1)}%',
+                    isRisk ? const Color(0xFFFF8A80) : const Color(0xFF8ED3FF),
+                  ),
+                ),
+                DataCell(
+                  _monoCell('${stat.minFreeWords}', const Color(0xFF90CAF9)),
+                ),
+                DataCell(
+                  _monoCell('${stat.maxUsedWords}', const Color(0xFFFFCC80)),
+                ),
+                DataCell(
+                  Text(
+                    _formatTime(stat.updatedAt),
+                    style: GoogleFonts.ibmPlexMono(
+                      color: const Color(0xFFA7C7EB),
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  Widget _monoCell(String value, Color color) {
+    return Text(
+      value,
+      style: GoogleFonts.ibmPlexMono(
+        color: color,
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+  }
+
+  String _formatTime(DateTime value) {
+    final hh = value.hour.toString().padLeft(2, '0');
+    final mm = value.minute.toString().padLeft(2, '0');
+    final ss = value.second.toString().padLeft(2, '0');
+    return '$hh:$mm:$ss';
   }
 
   Widget _stackMetric(String label, String value, Color color) {

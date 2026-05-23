@@ -58,6 +58,28 @@ flutter run -d windows
 flutter run -d windows --release
 ```
 
+Linux/WSL 调试建议:
+
+```bash
+flutter pub get
+flutter run -d linux --enable-software-rendering
+```
+
+若在 WSL/WSLg 下看到 `libEGL`、`MESA`、`ZINK`、`vkCreateInstance failed` 一类报错，优先改用软件渲染 + X11 回退:
+
+```bash
+GDK_BACKEND=x11 \
+GSK_RENDERER=cairo \
+LIBGL_ALWAYS_SOFTWARE=1 \
+flutter run -d linux --enable-software-rendering
+```
+
+注意:
+
+- 不要以 `root` 直接运行 `flutter`，否则 Flutter 会提示 `trying to run flutter as root`
+- 若必须从 `root` shell 切换，建议改用普通用户执行 HMI
+- `.vscode/tasks.json` 已提供 `Flutter: run linux (WSL software)` 任务
+
 ## 4. 代码结构
 
 ```text
@@ -113,6 +135,7 @@ flutter test
 - 常用任务:
   - `Windows: Enable Developer Mode (open settings)`
   - `Flutter: run windows`
+  - `Flutter: run linux (WSL software)`
   - `Flutter: build windows debug`
   - `CMake: Configure+Build (debug)`
 

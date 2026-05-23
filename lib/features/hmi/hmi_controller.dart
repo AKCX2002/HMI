@@ -10,6 +10,7 @@ import '../../core/serial/serial_transport.dart';
 import '../../util/log_exporter.dart';
 import 'hmi_port_config.dart';
 import 'hmi_protocol.dart';
+import 'stack_stats.dart';
 
 class HmiLogEntry {
   HmiLogEntry({
@@ -168,12 +169,22 @@ class HmiController extends ChangeNotifier {
 
   static const int _diskFlushBatchSize = 40;
   static const int _maxInMemoryLogs = 5000;
+  static const int _maxStackLevelSamples = 1200;
+  static const int _maxStackSnapshots = 240;
   final List<HmiLogEntry> _logs = <HmiLogEntry>[];
   final List<StackLevelSample> _stackLevelSamples = <StackLevelSample>[];
+  final List<StackSnapshot> _stackSnapshots = <StackSnapshot>[];
+  final StackStatsCollector _stackStatsCollector = StackStatsCollector();
   final StringBuffer _diskLogBuffer = StringBuffer();
+  final StringBuffer _stackDiskBuffer = StringBuffer();
   int _pendingDiskLogLines = 0;
+  int _pendingStackDiskLines = 0;
   bool _diskFlushInProgress = false;
+  bool _stackDiskFlushInProgress = false;
   String? _rollingLogPath;
+  String? _rollingStackLogPath;
+  Map<String, StackTaskStats> _stackTaskStats = <String, StackTaskStats>{};
+  StackSnapshot? _latestStackSnapshot;
 
   Future<void> _txChain = Future<void>.value();
 
@@ -207,6 +218,11 @@ class HmiController extends ChangeNotifier {
   List<HmiLogEntry> get logs => List<HmiLogEntry>.unmodifiable(_logs);
   List<StackLevelSample> get stackLevelSamples =>
       List<StackLevelSample>.unmodifiable(_stackLevelSamples);
+  List<StackSnapshot> get stackSnapshots =>
+      List<StackSnapshot>.unmodifiable(_stackSnapshots);
+  Map<String, StackTaskStats> get stackTaskStats =>
+      Map<String, StackTaskStats>.unmodifiable(_stackTaskStats);
+  StackSnapshot? get latestStackSnapshot => _latestStackSnapshot;
 
   // ────────────── 端口 A 配置 ──────────────
 
@@ -884,6 +900,10 @@ class HmiController extends ChangeNotifier {
 
   void clearStackLevelSamples() {
     _stackLevelSamples.clear();
+    _stackSnapshots.clear();
+    _stackTaskStats = <String, StackTaskStats>{};
+    _latestStackSnapshot = null;
+    _stackStatsCollector.reset();
     notifyListeners();
   }
 
@@ -1032,21 +1052,32 @@ class HmiController extends ChangeNotifier {
 
   /// 追加 DGUS 协议日志条目（由变量帧解析而来）。
   void _appendDgusLog(String text, String portLabel) {
+    final now = DateTime.now();
     final stackLevel = _parseStackLevelFromLog(text);
     if (stackLevel != null) {
       _stackLevelSamples.insert(
         0,
-        StackLevelSample(timestamp: DateTime.now(), level: stackLevel),
+        StackLevelSample(timestamp: now, level: stackLevel),
       );
-      if (_stackLevelSamples.length > 1200) {
+      if (_stackLevelSamples.length > _maxStackLevelSamples) {
         _stackLevelSamples.removeLast();
       }
+    }
+    final snapshot = _stackStatsCollector.addLogLine(text, timestamp: now);
+    if (snapshot != null) {
+      _latestStackSnapshot = snapshot;
+      _stackSnapshots.insert(0, snapshot);
+      if (_stackSnapshots.length > _maxStackSnapshots) {
+        _stackSnapshots.removeRange(_maxStackSnapshots, _stackSnapshots.length);
+      }
+      _stackTaskStats = mergeStackTaskStats(_stackTaskStats, snapshot);
+      _enqueueStackSnapshotForDisk(snapshot);
     }
 
     final entry = HmiLogEntry(
       direction: 'LOG',
       frame: _dgusPlaceholder,
-      timestamp: DateTime.now(),
+      timestamp: now,
       decoded: HmiDecodedFrame(title: 'DGUS日志', summary: text, rawDataHex: ''),
       portLabel: portLabel,
     );
@@ -1088,6 +1119,14 @@ class HmiController extends ChangeNotifier {
     }
   }
 
+  void _enqueueStackSnapshotForDisk(StackSnapshot snapshot) {
+    _stackDiskBuffer.write('${jsonEncode(snapshot.toJson())}\n');
+    _pendingStackDiskLines++;
+    if (_pendingStackDiskLines >= _diskFlushBatchSize) {
+      unawaited(_flushStackSnapshotsToDisk());
+    }
+  }
+
   Future<void> _flushLogsToDisk() async {
     if (_diskFlushInProgress || _pendingDiskLogLines == 0) {
       return;
@@ -1097,7 +1136,10 @@ class HmiController extends ChangeNotifier {
     _diskLogBuffer.clear();
     _pendingDiskLogLines = 0;
     try {
-      _rollingLogPath = await appendLogsChunk(chunk, existingPath: _rollingLogPath);
+      _rollingLogPath = await appendLogsChunk(
+        chunk,
+        existingPath: _rollingLogPath,
+      );
     } catch (_) {
       // Web/权限受限平台自动忽略，保持主流程稳定。
       // 下次仍可继续尝试写盘。
@@ -1109,12 +1151,36 @@ class HmiController extends ChangeNotifier {
     }
   }
 
+  Future<void> _flushStackSnapshotsToDisk() async {
+    if (_stackDiskFlushInProgress || _pendingStackDiskLines == 0) {
+      return;
+    }
+    _stackDiskFlushInProgress = true;
+    final chunk = _stackDiskBuffer.toString();
+    _stackDiskBuffer.clear();
+    _pendingStackDiskLines = 0;
+    try {
+      _rollingStackLogPath = await appendLogsChunk(
+        chunk,
+        existingPath: _rollingStackLogPath,
+        filePrefix: 'hmi_stack_stats',
+      );
+    } catch (_) {
+      // Web/权限受限平台自动忽略，保持主流程稳定。
+    } finally {
+      _stackDiskFlushInProgress = false;
+      if (_pendingStackDiskLines > 0) {
+        unawaited(_flushStackSnapshotsToDisk());
+      }
+    }
+  }
+
   static final HmiFrame _dgusPlaceholder = HmiFrame(
     address: 0,
     function: 0,
     data: const <int>[],
   );
-  
+
   int? _parseStackLevelFromLog(String text) {
     final match = RegExp(
       r'\bSTACK_LEVEL\s*=\s*(0x[0-9a-fA-F]+|\d+)\b',
@@ -1153,6 +1219,7 @@ class HmiController extends ChangeNotifier {
   @override
   void dispose() {
     unawaited(_flushLogsToDisk());
+    unawaited(_flushStackSnapshotsToDisk());
     try {
       _subscriptionA?.cancel();
     } catch (e) {

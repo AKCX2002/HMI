@@ -59,6 +59,9 @@
 - 当前框架版本: `Flutter 3.41.7 / Dart 3.11.5`
 - 目标平台: `Windows/macOS/Linux/Android/iOS/Web`
 - 串口联调优先平台: 桌面端（Windows/Linux/macOS）
+- WSL/WSLg 运行 Linux 桌面版时，若出现 `libEGL` / `MESA` / `ZINK` / `vkCreateInstance failed`，
+  优先按“软件渲染 + X11 回退”口径处理：
+  `GDK_BACKEND=x11 GSK_RENDERER=cairo LIBGL_ALWAYS_SOFTWARE=1 flutter run -d linux --enable-software-rendering`
 - Windows 构建前置: 必须开启 Developer Mode（符号链接权限），否则插件阶段会报
   `Building with plugins requires symlink support`
 - 已提供构建入口:
@@ -85,6 +88,7 @@
 1. 先阅读协议文档再改代码
 2. 先做协议与串口连通性，再做界面扩展
 3. 每次新增功能码时，先补协议构帧/解析，再补 UI
+4. Linux/WSL 图形异常时，先检查是否误用 `root` 运行 Flutter，再切到软件渲染任务验证
 
 联调要点:
 
@@ -121,6 +125,9 @@
 - Windows 下最常见两类问题:
   - 符号链接未开启（Developer Mode）
   - 历史 CMake 缓存导致生成器平台不一致
+- WSL 下最常见 Linux 桌面问题:
+  - 以 `root` 运行 Flutter，导致工具链和图形会话权限异常
+  - Wayland/Vulkan 后端不兼容，需改用软件渲染或 X11 回退
 
 ## 8. Maintenance Checklist
 

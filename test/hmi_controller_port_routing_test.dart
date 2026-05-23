@@ -46,6 +46,11 @@ class _FakeSerialTransport implements SerialTransport {
   }
 }
 
+List<int> _dgusLogFrame(String text) {
+  final bytes = text.codeUnits;
+  return <int>[0x5A, 0xA5, bytes.length + 3, 0x82, 0x30, 0x00, ...bytes];
+}
+
 void main() {
   test('加热参数映射包含占空比周期与占空比', () async {
     final heaterPeriod = findParamDef(0x50);
@@ -169,6 +174,71 @@ void main() {
       'DGUS RX 5A A5 07 82 30 00 48 49 00 00',
     );
     expect(controller.logs[0].decoded.summary, 'HI');
+
+    controller.dispose();
+    await transportA.dispose();
+    await transportB.dispose();
+  });
+
+  test('端口 B 收到完整栈快照后更新任务统计总览', () async {
+    final transportA = _FakeSerialTransport();
+    final transportB = _FakeSerialTransport();
+    final controller = HmiController(transportA, transportB: transportB);
+
+    final lines = <String>[
+      'STACK_SNAPSHOT_BEGIN',
+      'STACK_TASK NAME=ProtoTask TOTAL=384 FREE=320',
+      'STACK_TASK NAME=StateMachineTask TOTAL=576 FREE=400',
+      'STACK_TASK NAME=MotorTask TOTAL=768 FREE=420',
+      'STACK_TASK NAME=AdcTask TOTAL=256 FREE=200',
+      'STACK_TASK NAME=CommTask TOTAL=640 FREE=300',
+      'STACK_TASK NAME=MonitorTask TOTAL=576 FREE=180',
+      'STACK_TASK NAME=HeaterTask TOTAL=448 FREE=390',
+      'STACK_SNAPSHOT_END',
+    ];
+    for (final line in lines) {
+      transportB.emit(_dgusLogFrame(line));
+    }
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.latestStackSnapshot, isNotNull);
+    expect(controller.stackTaskStats, hasLength(7));
+    expect(controller.latestStackSnapshot!.summary.totalWords, 3648);
+    expect(
+      controller.latestStackSnapshot!.summary.riskiestTaskName,
+      'MonitorTask',
+    );
+
+    controller.dispose();
+    await transportA.dispose();
+    await transportB.dispose();
+  });
+
+  test('控制器只保留有限数量的结构化栈快照，避免长期运行内存增长', () async {
+    final transportA = _FakeSerialTransport();
+    final transportB = _FakeSerialTransport();
+    final controller = HmiController(transportA, transportB: transportB);
+
+    for (var index = 0; index < 260; index++) {
+      final monitorFree = 180 + (index % 5);
+      final lines = <String>[
+        'STACK_SNAPSHOT_BEGIN',
+        'STACK_TASK NAME=ProtoTask TOTAL=384 FREE=320',
+        'STACK_TASK NAME=StateMachineTask TOTAL=576 FREE=400',
+        'STACK_TASK NAME=MotorTask TOTAL=768 FREE=420',
+        'STACK_TASK NAME=AdcTask TOTAL=256 FREE=200',
+        'STACK_TASK NAME=CommTask TOTAL=640 FREE=300',
+        'STACK_TASK NAME=MonitorTask TOTAL=576 FREE=$monitorFree',
+        'STACK_TASK NAME=HeaterTask TOTAL=448 FREE=390',
+        'STACK_SNAPSHOT_END',
+      ];
+      for (final line in lines) {
+        transportB.emit(_dgusLogFrame(line));
+      }
+    }
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.stackSnapshots.length, lessThanOrEqualTo(240));
 
     controller.dispose();
     await transportA.dispose();

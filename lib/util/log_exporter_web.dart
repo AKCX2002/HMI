@@ -6,6 +6,8 @@ Future<String> exportLogsToFile(String content) async {
 Future<String> appendLogsChunk(
   String content, {
   String? existingPath,
+  String filePrefix = 'hmi_live_log',
 }) async {
+  final _ = filePrefix;
   throw UnsupportedError('Web 平台不支持文件系统自动落盘');
 }

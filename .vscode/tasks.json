@@ -56,6 +56,28 @@
       "detail": "Run Flutter Linux"
     },
     {
+      "label": "Flutter: run linux (WSL software)",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "run",
+        "-d",
+        "linux",
+        "--enable-software-rendering"
+      ],
+      "options": {
+        "env": {
+          "XCURSOR_THEME": "Adwaita",
+          "GDK_BACKEND": "x11",
+          "GSK_RENDERER": "cairo",
+          "LIBGL_ALWAYS_SOFTWARE": "1"
+        }
+      },
+      "group": "build",
+      "problemMatcher": [],
+      "detail": "Run Flutter Linux in WSL with software rendering and X11 fallback"
+    },
+    {
       "label": "Flutter: run linux (Wayland)",
       "type": "shell",
       "command": "flutter",

@@ -9,7 +9,6 @@
     "dart.debugExternalLibraries": false,
     "dart.evaluationLogs": true,
     "terminal.integrated.env.linux": {
-        "XCURSOR_THEME": "Adwaita",
-        "GDK_BACKEND": "wayland"
+        "XCURSOR_THEME": "Adwaita"
     }
 }

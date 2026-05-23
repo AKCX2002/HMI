@@ -14,6 +14,24 @@
       ]
     },
     {
+      "name": "Flutter Linux (Debug, WSL software)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "flutterMode": "debug",
+      "deviceId": "linux",
+      "preLaunchTask": "Flutter: pub get",
+      "toolArgs": [
+        "--enable-software-rendering"
+      ],
+      "env": {
+        "XCURSOR_THEME": "Adwaita",
+        "GDK_BACKEND": "x11",
+        "GSK_RENDERER": "cairo",
+        "LIBGL_ALWAYS_SOFTWARE": "1"
+      }
+    },
+    {
       "name": "Flutter Linux (Profile)",
       "request": "launch",
       "type": "dart",
