@@ -43,7 +43,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
   ),
   HmiParamDef(
     id: 0x11,
-    name: '拉断回拉频率',
+    name: '拉断频率(43轴1)',
     unit: 'Hz',
     min: 0,
     max: 200000,
@@ -52,7 +52,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
   ),
   HmiParamDef(
     id: 0x12,
-    name: '2号轴压下频率',
+    name: '压杆下压频率(2/3/4)',
     unit: 'Hz',
     min: 100,
     max: 80000,
@@ -61,7 +61,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
   ),
   HmiParamDef(
     id: 0x13,
-    name: '归位频率',
+    name: '压杆归位频率(2/3/4)',
     unit: 'Hz',
     min: 100,
     max: 80000,
@@ -200,9 +200,9 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
   ),
   HmiParamDef(
     id: 0x2A,
-    name: '归位联合动作超时',
+    name: '归位联合超时(2/3/4)',
     unit: 'ms',
-    min: 100,
+    min: 10000,
     max: 60000,
     dgusAddr: 0x2034,
     group: '流程延时/超时',
@@ -332,7 +332,7 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
 
   // ══════════════════════════════════════════════════════════════════
   //  0x48~0x4B: 已移除，压杆机械固定参数改为固件编译期 APP_CFG_PRESS_* 宏
-  //  压杆运行参数 (ID 0x4C~0x4E, DGUS 0x2078~0x207C)
+  //  压杆运行参数 (ID 0x4C~0x4F, DGUS 0x2078~0x207E)
   // ══════════════════════════════════════════════════════════════════
   HmiParamDef(
     id: 0x4C,
@@ -361,6 +361,15 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     dgusAddr: 0x207C,
     group: '压杆机械尺寸',
   ),
+  HmiParamDef(
+    id: 0x4F,
+    name: '压下前预回抽位移',
+    unit: '0.001mm',
+    min: 0,
+    max: 1000000,
+    dgusAddr: 0x207E,
+    group: '压杆机械尺寸',
+  ),
 
   // ══════════════════════════════════════════════════════════════════
   //  加热/打印机 (ID 0x50~0x54, DGUS 0x2080~0x2088)
@@ -381,15 +390,6 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
     min: 0,
     max: 1000,
     dgusAddr: 0x2082,
-    group: '加热/打印机',
-  ),
-  HmiParamDef(
-    id: 0x52,
-    name: '开关标志位域',
-    unit: '',
-    min: 0,
-    max: 15,
-    dgusAddr: 0x2084,
     group: '加热/打印机',
   ),
   HmiParamDef(
@@ -416,39 +416,12 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
   // ══════════════════════════════════════════════════════════════════
 
   // ══════════════════════════════════════════════════════════════════
-  //  监控/看门狗 (ID 0x70~0x72, DGUS 0x20C0~0x20C4)
+  //  0x70~0x72: 已移除，监控/看门狗参数改为固件编译期 APP_CFG_* 宏
   // ══════════════════════════════════════════════════════════════════
-  HmiParamDef(
-    id: 0x70,
-    name: '喂狗周期',
-    unit: 'ms',
-    min: 10,
-    max: 10000,
-    dgusAddr: 0x20C0,
-    group: '监控/看门狗',
-  ),
-  HmiParamDef(
-    id: 0x71,
-    name: '栈水位日志周期',
-    unit: 'ms',
-    min: 1000,
-    max: 3600000,
-    dgusAddr: 0x20C2,
-    group: '监控/看门狗',
-  ),
-  HmiParamDef(
-    id: 0x72,
-    name: 'CPU使用率日志周期',
-    unit: 'ms',
-    min: 1000,
-    max: 3600000,
-    dgusAddr: 0x20C4,
-    group: '监控/看门狗',
-  ),
 
   // ══════════════════════════════════════════════════════════════════
   //  挡板时序与自检 (ID 0x80~0x83, DGUS 0x20E0~0x20EC)
-  //  注意: 4 个开关标志已合并为单个 flags 位域 (ID 0x52, DGUS 0x2084)
+  //  注意: 历史开关标志位域(0x52)已移除并固定为固件内建策略
   // ══════════════════════════════════════════════════════════════════
   HmiParamDef(
     id: 0x80,
