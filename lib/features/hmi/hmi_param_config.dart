@@ -376,10 +376,10 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
   // ══════════════════════════════════════════════════════════════════
   HmiParamDef(
     id: 0x50,
-    name: '加热PWM频率',
-    unit: 'Hz',
-    min: 1000,
-    max: 50000,
+    name: '加热占空比周期',
+    unit: 'ms',
+    min: 100,
+    max: 10000,
     dgusAddr: 0x2080,
     group: '加热/打印机',
   ),
