@@ -74,6 +74,137 @@ void main() {
       expect(snapshot.summary.riskiestTaskName, 'MonitorTask');
     });
 
+    test('带日志级别前缀的快照行也能被解析', () {
+      final collector = StackStatsCollector();
+      final now = DateTime(2026, 5, 23, 12, 0, 0);
+
+      expect(collector.addLogLine('[I] STACK_SNAPSHOT_BEGIN', timestamp: now), isNull);
+      expect(
+        collector.addLogLine(
+          '[I] STACK_TASK NAME=ProtoTask TOTAL=384 FREE=320',
+          timestamp: now,
+        ),
+        isNull,
+      );
+      expect(
+        collector.addLogLine(
+          '[I] STACK_TASK NAME=StateMachineTask TOTAL=576 FREE=400',
+          timestamp: now,
+        ),
+        isNull,
+      );
+      expect(
+        collector.addLogLine(
+          '[I] STACK_TASK NAME=MotorTask TOTAL=768 FREE=420',
+          timestamp: now,
+        ),
+        isNull,
+      );
+      expect(
+        collector.addLogLine(
+          '[I] STACK_TASK NAME=AdcTask TOTAL=256 FREE=200',
+          timestamp: now,
+        ),
+        isNull,
+      );
+      expect(
+        collector.addLogLine(
+          '[I] STACK_TASK NAME=CommTask TOTAL=640 FREE=300',
+          timestamp: now,
+        ),
+        isNull,
+      );
+      expect(
+        collector.addLogLine(
+          '[I] STACK_TASK NAME=MonitorTask TOTAL=576 FREE=180',
+          timestamp: now,
+        ),
+        isNull,
+      );
+      expect(
+        collector.addLogLine(
+          '[I] STACK_TASK NAME=HeaterTask TOTAL=448 FREE=390',
+          timestamp: now,
+        ),
+        isNull,
+      );
+
+      final snapshot = collector.addLogLine(
+        '[I] STACK_SNAPSHOT_END',
+        timestamp: now,
+      );
+
+      expect(snapshot, isNotNull);
+      expect(snapshot!.tasks, hasLength(7));
+    });
+
+    test('带重复日志级别前缀的快照行也能被解析', () {
+      final collector = StackStatsCollector();
+      final now = DateTime(2026, 5, 23, 12, 0, 0);
+
+      expect(
+        collector.addLogLine('[I] [I] STACK_SNAPSHOT_BEGIN', timestamp: now),
+        isNull,
+      );
+      expect(
+        collector.addLogLine(
+          '[I] [I] STACK_TASK NAME=ProtoTask TOTAL=384 FREE=320',
+          timestamp: now,
+        ),
+        isNull,
+      );
+      expect(
+        collector.addLogLine(
+          '[I] [I] STACK_TASK NAME=StateMachineTask TOTAL=576 FREE=400',
+          timestamp: now,
+        ),
+        isNull,
+      );
+      expect(
+        collector.addLogLine(
+          '[I] [I] STACK_TASK NAME=MotorTask TOTAL=768 FREE=420',
+          timestamp: now,
+        ),
+        isNull,
+      );
+      expect(
+        collector.addLogLine(
+          '[I] [I] STACK_TASK NAME=AdcTask TOTAL=256 FREE=200',
+          timestamp: now,
+        ),
+        isNull,
+      );
+      expect(
+        collector.addLogLine(
+          '[I] [I] STACK_TASK NAME=CommTask TOTAL=640 FREE=300',
+          timestamp: now,
+        ),
+        isNull,
+      );
+      expect(
+        collector.addLogLine(
+          '[I] [I] STACK_TASK NAME=MonitorTask TOTAL=576 FREE=180',
+          timestamp: now,
+        ),
+        isNull,
+      );
+      expect(
+        collector.addLogLine(
+          '[I] [I] STACK_TASK NAME=HeaterTask TOTAL=448 FREE=390',
+          timestamp: now,
+        ),
+        isNull,
+      );
+
+      final snapshot = collector.addLogLine(
+        '[I] [I] STACK_SNAPSHOT_END',
+        timestamp: now,
+      );
+
+      expect(snapshot, isNotNull);
+      expect(snapshot!.tasks, hasLength(7));
+    });
+
     test('缺少任务时整份快照丢弃', () {
       final collector = StackStatsCollector();
       final now = DateTime(2026, 5, 23, 12, 0, 0);

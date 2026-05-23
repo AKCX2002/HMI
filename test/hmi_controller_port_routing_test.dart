@@ -71,6 +71,16 @@ void main() {
     expect(heaterDuty.dgusAddr, 0x2082);
   });
 
+  test('出袋轴频率与拉断回拉频率允许 0 作为自动换算哨兵值', () async {
+    final bagOutHz = findParamDef(0x10);
+    final tearOffHz = findParamDef(0x11);
+
+    expect(bagOutHz, isNotNull);
+    expect(bagOutHz!.min, 0);
+    expect(tearOffHz, isNotNull);
+    expect(tearOffHz!.min, 0);
+  });
+
   test('端口 A 只解析 20 字节主协议，不消费 DGUS 日志帧', () async {
     final transportA = _FakeSerialTransport();
     final transportB = _FakeSerialTransport();

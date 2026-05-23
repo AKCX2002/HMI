@@ -149,7 +149,7 @@ class StackStatsCollector {
   int get bufferedLineCount => _bufferedLineCount;
 
   StackSnapshot? addLogLine(String text, {DateTime? timestamp}) {
-    final trimmed = text.trim();
+    final trimmed = _normalizeLogLine(text);
     if (trimmed.isEmpty) {
       return null;
     }
@@ -200,6 +200,23 @@ class StackStatsCollector {
       freeWords: freeWords,
     );
     return null;
+  }
+
+  static String _normalizeLogLine(String text) {
+    String normalized = text.trim();
+
+    while (true) {
+      final next = normalized.replaceFirst(
+        RegExp(r'^\[(?:I|W|E|D)\]\s*'),
+        '',
+      );
+      if (next == normalized) {
+        break;
+      }
+      normalized = next.trimLeft();
+    }
+
+    return normalized;
   }
 
   void reset() {
