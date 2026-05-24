@@ -70,6 +70,27 @@ void main() {
     await transportB.dispose();
   });
 
+  testWidgets('USART1 page exposes three session sub pages', (
+    WidgetTester tester,
+  ) async {
+    final transportA = _FakeSerialTransport();
+    final transportB = _FakeSerialTransport();
+    final app = HmiHostApp(
+      controller: HmiController(transportA, transportB: transportB),
+    );
+    await tester.pumpWidget(app);
+
+    await tester.tap(find.text('USART1会话').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('参数调节'), findsAtLeastNWidgets(1));
+    expect(find.text('系统状态'), findsAtLeastNWidgets(1));
+    expect(find.text('日志监控'), findsAtLeastNWidgets(1));
+
+    await transportA.dispose();
+    await transportB.dispose();
+  });
+
   testWidgets('栈统计页显示总览卡片与任务表格', (WidgetTester tester) async {
     final transportA = _FakeSerialTransport();
     final transportB = _FakeSerialTransport();
@@ -102,6 +123,24 @@ void main() {
     expect(find.text('最危险任务'), findsAtLeastNWidgets(1));
     expect(find.text('ProtoTask'), findsOneWidget);
     expect(find.text('MonitorTask'), findsAtLeastNWidgets(1));
+
+    controller.dispose();
+    await transportA.dispose();
+    await transportB.dispose();
+  });
+
+  testWidgets('栈统计空态按 USART1 Session 日志口径提示', (WidgetTester tester) async {
+    final transportA = _FakeSerialTransport();
+    final transportB = _FakeSerialTransport();
+    final controller = HmiController(transportA, transportB: transportB);
+    final app = HmiHostApp(controller: controller);
+    await tester.pumpWidget(app);
+
+    await tester.tap(find.text('栈水位统计').last);
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('USART1 Session 日志'), findsOneWidget);
+    expect(find.textContaining('等待固件输出 STACK_SNAPSHOT'), findsNothing);
 
     controller.dispose();
     await transportA.dispose();

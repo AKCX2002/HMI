@@ -71,6 +71,10 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
 
   /// Port A 子标签页: 0=状态0x41, 1=封口0x43, 2=基础控制, 3=维护诊断, 4=电机点动
   int _packerSubTab = 0;
+
+  /// USART1 子页面: 0=参数调节, 1=系统状态, 2=日志监控
+  int _usart1SubPage = 0;
+
   int _logDisplayMode = 2; /* 0=HEX, 1=文本, 2=HEX+文本 */
   bool _logsPaused = false;
 
@@ -131,6 +135,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     _cmd4aPulses.dispose();
     _cmd4bDuration.dispose();
     _cmd4cDuration.dispose();
+    _dbusParamId.dispose();
+    _dbusValue.dispose();
+    _dbusNodeAddr.dispose();
     super.dispose();
   }
 
@@ -216,7 +223,14 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   }
 
   Widget _buildCompactMenuBar() {
-    final menus = <String>['串口配置', 'USART3调试', 'USART1会话', '帧调试台', '协议日志', '栈水位统计'];
+    final menus = <String>[
+      '串口配置',
+      'USART3调试',
+      'USART1会话',
+      '帧调试台',
+      '协议日志',
+      '栈水位统计',
+    ];
     return Container(
       height: 48,
       decoration: const BoxDecoration(
@@ -572,10 +586,6 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
           _buildSinglePortBar(controller, portA: false),
           const SizedBox(height: 12),
           _buildPortBPanel(controller),
-          const SizedBox(height: 12),
-          SizedBox(height: 620, child: _buildSettingsPage(controller)),
-          const SizedBox(height: 12),
-          _buildLiveLogPanel(controller),
         ],
       ),
     );
@@ -1716,171 +1726,402 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   /// ── 端口 B 面板：USART1 HMI Session ──
   Widget _buildPortBPanel(HmiController controller) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF102744),
+        color: const Color(0xFF0D1A30),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFF274E7A)),
+        boxShadow: const <BoxShadow>[
+          BoxShadow(
+            color: Color(0x55030A14),
+            blurRadius: 18,
+            offset: Offset(0, 10),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          // ── 标题 ──
           Row(
             children: <Widget>[
-              const Icon(
-                Icons.developer_mode,
-                color: Color(0xFF5ED0FF),
-                size: 18,
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF132A3B),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFF2D6F86)),
+                ),
+                child: const Icon(
+                  Icons.developer_mode,
+                  color: Color(0xFF54D6C6),
+                  size: 19,
+                ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      '端口 B — USART1 / HMI Session',
+                      style: GoogleFonts.ibmPlexSans(
+                        color: const Color(0xFFE0EEFF),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '参数调试、系统状态、日志监控分区处理',
+                      style: GoogleFonts.ibmPlexSans(
+                        color: const Color(0xFF8FB6C8),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _buildUsart1StatusPill(controller),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _buildUsart1SubPageBar(),
+          const SizedBox(height: 14),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 180),
+            child: KeyedSubtree(
+              key: ValueKey<int>(_usart1SubPage),
+              child: switch (_usart1SubPage) {
+                0 => _buildUsart1ParamsPage(controller),
+                1 => _buildUsart1StatusPage(controller),
+                _ => _buildUsart1LogsPage(controller),
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUsart1StatusPill(HmiController controller) {
+    final connected = controller.isConnectedB;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: connected ? const Color(0xFF103B35) : const Color(0xFF3A1E24),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: connected ? const Color(0xFF3DBE9F) : const Color(0xFFB85A66),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(
+            connected ? Icons.link : Icons.link_off,
+            color: connected
+                ? const Color(0xFF9AF9D3)
+                : const Color(0xFFFFA8A8),
+            size: 14,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            connected ? '已连接' : '未连接',
+            style: GoogleFonts.ibmPlexSans(
+              color: connected
+                  ? const Color(0xFF9AF9D3)
+                  : const Color(0xFFFFA8A8),
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUsart1SubPageBar() {
+    const pages = <({IconData icon, String label, String hint})>[
+      (icon: Icons.tune, label: '参数调节', hint: '读写 / 批量 / EEPROM'),
+      (icon: Icons.monitor_heart_outlined, label: '系统状态', hint: '状态 / 运行 / 报警'),
+      (icon: Icons.terminal, label: '日志监控', hint: 'LOG_PUSH / 会话帧'),
+    ];
+
+    return LayoutBuilder(
+      builder: (_, constraints) {
+        final compact = constraints.maxWidth < 760;
+        return Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: <Widget>[
+            for (var i = 0; i < pages.length; i++)
+              InkWell(
+                onTap: () => setState(() => _usart1SubPage = i),
+                borderRadius: BorderRadius.circular(8),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  width: compact ? constraints.maxWidth : 220,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _usart1SubPage == i
+                        ? const Color(0xFF173447)
+                        : const Color(0xFF091D2E),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: _usart1SubPage == i
+                          ? const Color(0xFF54D6C6)
+                          : const Color(0xFF24425D),
+                    ),
+                  ),
+                  child: Row(
+                    children: <Widget>[
+                      Icon(
+                        pages[i].icon,
+                        color: _usart1SubPage == i
+                            ? const Color(0xFF54D6C6)
+                            : const Color(0xFF7CA5B8),
+                        size: 18,
+                      ),
+                      const SizedBox(width: 9),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              pages[i].label,
+                              style: GoogleFonts.ibmPlexSans(
+                                color: const Color(0xFFE0EEFF),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 1),
+                            Text(
+                              pages[i].hint,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.ibmPlexSans(
+                                color: const Color(0xFF7CA5B8),
+                                fontSize: 10,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildUsart1SectionHeader({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    Widget? trailing,
+  }) {
+    return Row(
+      children: <Widget>[
+        Icon(icon, color: const Color(0xFF54D6C6), size: 17),
+        const SizedBox(width: 7),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
               Text(
-                '端口 B — USART1 / HMI Session 参数+日志',
+                title,
                 style: GoogleFonts.ibmPlexSans(
                   color: const Color(0xFFE0EEFF),
-                  fontSize: 15,
+                  fontSize: 14,
                   fontWeight: FontWeight.w700,
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          // ── 参数调节 ──
-          Text(
-            '参数调节（通过 USART1 HMI Session 批量读写参数）',
-            style: GoogleFonts.ibmPlexSans(
-              color: const Color(0xFFA6C5EA),
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 8),
-          LayoutBuilder(
-            builder: (_, constraints) {
-              final compact = constraints.maxWidth < 450;
-              return Wrap(
-                spacing: 6,
-                runSpacing: 8,
-                children: <Widget>[
-                  SizedBox(
-                    width: compact ? 70 : 90,
-                    child: _textField('参数ID(HEX)', _dbusParamId),
-                  ),
-                  SizedBox(
-                    width: compact ? 80 : 120,
-                    child: _numberField('值', _dbusValue),
-                  ),
-                  SizedBox(
-                    width: compact ? 70 : 90,
-                    child: _textField('节点HEX', _dbusNodeAddr),
-                  ),
-                  _miniBtn('读取', true, () => _dbusRead(controller)),
-                  _miniBtn('写入', true, () => _dbusWrite(controller)),
-                  _miniBtn('保存EEPROM', true, () => _dbusSave(controller)),
-                ],
-              );
-            },
-          ),
-          if (_dbusStatus.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                _dbusStatus,
-                style: GoogleFonts.ibmPlexMono(
-                  color: _dbusReadResult != null
-                      ? const Color(0xFF9FFFC9)
-                      : const Color(0xFFFFE082),
-                  fontSize: 12,
-                ),
-              ),
-            ),
-          const SizedBox(height: 12),
-          // ── 分隔线 + 批量操作 ──
-          const Divider(color: Color(0xFF233A62), height: 1),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: <Widget>[
-              _miniBtn('批量读取前10项', true, () => _dbusBatchRead(controller, 10)),
-              _miniBtn('批量读取全部', true, () => _dbusBatchRead(controller, 53)),
-              _miniBtn('恢复默认值', true, () => _dbusLoadDefault(controller)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          // ── 系统信息区 ──
-          const Divider(color: Color(0xFF233A62), height: 1),
-          const SizedBox(height: 8),
-          Row(
-            children: <Widget>[
-              const Icon(
-                Icons.info_outline,
-                color: Color(0xFF5ED0FF),
-                size: 16,
-              ),
-              const SizedBox(width: 6),
+              const SizedBox(height: 2),
               Text(
-                'DGUS 系统信息 (VP 0x1000~0x1003)',
+                subtitle,
                 style: GoogleFonts.ibmPlexSans(
-                  color: const Color(0xFFA6C5EA),
+                  color: const Color(0xFF8FB6C8),
                   fontSize: 11,
                   fontWeight: FontWeight.w500,
                 ),
               ),
-              const Spacer(),
-              _miniBtn(
-                '读取状态',
-                _sysInfoLoading == false,
-                () => _dbusSysInfo(controller),
+            ],
+          ),
+        ),
+        if (trailing != null) ...[const SizedBox(width: 8), trailing],
+      ],
+    );
+  }
+
+  Widget _buildUsart1ParamsPage(HmiController controller) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF102744),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFF2D4F7E)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              _buildUsart1SectionHeader(
+                icon: Icons.tune,
+                title: '参数调节',
+                subtitle: '通过 USART1 HMI Session 批量读写运行时参数',
+              ),
+              const SizedBox(height: 12),
+              LayoutBuilder(
+                builder: (_, constraints) {
+                  final compact = constraints.maxWidth < 520;
+                  return Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: <Widget>[
+                      SizedBox(
+                        width: compact ? 96 : 120,
+                        child: _textField('参数ID(HEX)', _dbusParamId),
+                      ),
+                      SizedBox(
+                        width: compact ? 110 : 140,
+                        child: _numberField('值', _dbusValue),
+                      ),
+                      SizedBox(
+                        width: compact ? 96 : 120,
+                        child: _textField('节点HEX', _dbusNodeAddr),
+                      ),
+                      _miniBtn('读取', true, () => _dbusRead(controller)),
+                      _miniBtn('写入', true, () => _dbusWrite(controller)),
+                      _miniBtn('保存EEPROM', true, () => _dbusSave(controller)),
+                    ],
+                  );
+                },
+              ),
+              if (_dbusStatus.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    _dbusStatus,
+                    style: GoogleFonts.ibmPlexMono(
+                      color: _dbusReadResult != null
+                          ? const Color(0xFF9FFFC9)
+                          : const Color(0xFFFFE082),
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: <Widget>[
+                  _miniBtn(
+                    '批量读取前10项',
+                    true,
+                    () => _dbusBatchRead(controller, 10),
+                  ),
+                  _miniBtn(
+                    '批量读取全部',
+                    true,
+                    () => _dbusBatchRead(controller, 53),
+                  ),
+                  _miniBtn('恢复默认值', true, () => _dbusLoadDefault(controller)),
+                ],
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          if (_sysInfoData != null)
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xFF0B1E3A),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFF2D4F7E)),
-              ),
-              child: Row(
-                children: <Widget>[
-                  _sysInfoBadge(
-                    '状态',
-                    '0x${toHex2(_sysInfoData![0])}',
-                    const Color(0xFF5ED0FF),
-                  ),
-                  const SizedBox(width: 12),
-                  _sysInfoBadge(
-                    '运行',
-                    '${_sysInfoData![1]}',
-                    _sysInfoData![1] == 1
-                        ? const Color(0xFFFFE082)
-                        : const Color(0xFF90A4AE),
-                  ),
-                  const SizedBox(width: 12),
-                  _sysInfoBadge(
-                    '自检',
-                    '${_sysInfoData![2]}',
-                    _sysInfoData![2] == 1
-                        ? const Color(0xFF9FFFC9)
-                        : const Color(0xFFFFE082),
-                  ),
-                  const SizedBox(width: 12),
-                  _sysInfoBadge(
-                    '报警',
-                    '0x${toHex2(_sysInfoData![3])}',
-                    _sysInfoData![3] != 0
-                        ? const Color(0xFFFF6B6B)
-                        : const Color(0xFF90A4AE),
-                  ),
-                ],
-              ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(height: 640, child: _buildSettingsPage(controller)),
+      ],
+    );
+  }
+
+  Widget _buildUsart1StatusPage(HmiController controller) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF102744),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFF2D4F7E)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          _buildUsart1SectionHeader(
+            icon: Icons.monitor_heart_outlined,
+            title: '系统状态',
+            subtitle: '按需读取 VP 0x1000~0x1003 聚合状态',
+            trailing: _miniBtn(
+              '读取状态',
+              _sysInfoLoading == false,
+              () => _dbusSysInfo(controller),
             ),
+          ),
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (_, constraints) {
+              final data = _sysInfoData;
+              final compact = constraints.maxWidth < 620;
+              final badges = <Widget>[
+                _buildStatusTile(
+                  label: '状态',
+                  value: data == null ? '--' : '0x${toHex2(data[0])}',
+                  color: const Color(0xFF5ED0FF),
+                ),
+                _buildStatusTile(
+                  label: '运行',
+                  value: data == null ? '--' : '${data[1]}',
+                  color: data != null && data[1] == 1
+                      ? const Color(0xFFFFE082)
+                      : const Color(0xFF90A4AE),
+                ),
+                _buildStatusTile(
+                  label: '自检',
+                  value: data == null ? '--' : '${data[2]}',
+                  color: data != null && data[2] == 1
+                      ? const Color(0xFF9FFFC9)
+                      : const Color(0xFFFFE082),
+                ),
+                _buildStatusTile(
+                  label: '报警',
+                  value: data == null ? '--' : '0x${toHex2(data[3])}',
+                  color: data != null && data[3] != 0
+                      ? const Color(0xFFFF6B6B)
+                      : const Color(0xFF90A4AE),
+                ),
+              ];
+              return Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: badges
+                    .map(
+                      (widget) => SizedBox(
+                        width: compact
+                            ? (constraints.maxWidth - 10) / 2
+                            : (constraints.maxWidth - 30) / 4,
+                        child: widget,
+                      ),
+                    )
+                    .toList(),
+              );
+            },
+          ),
           if (_sysInfoStatus.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(top: 6),
+              padding: const EdgeInsets.only(top: 10),
               child: Text(
                 _sysInfoStatus,
                 style: GoogleFonts.ibmPlexMono(
@@ -1891,69 +2132,95 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                 ),
               ),
             ),
-          const SizedBox(height: 12),
-          // ── 日志接收区 ──
-          const Divider(color: Color(0xFF233A62), height: 1),
-          const SizedBox(height: 8),
-          Row(
-            children: <Widget>[
-              const Icon(Icons.terminal, color: Color(0xFF5ED0FF), size: 16),
-              const SizedBox(width: 6),
-              Text(
-                '端口 B 日志输出实时监控',
-                style: GoogleFonts.ibmPlexSans(
-                  color: const Color(0xFFA6C5EA),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusTile({
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF081D31),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF264762)),
+      ),
+      child: _sysInfoBadge(label, value, color),
+    );
+  }
+
+  Widget _buildUsart1LogsPage(HmiController controller) {
+    final portBLogs = controller.logs
+        .where((e) => e.portLabel.contains('端口 B'))
+        .toList();
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF102744),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFF2D4F7E)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          _buildUsart1SectionHeader(
+            icon: Icons.terminal,
+            title: '日志监控',
+            subtitle: '只显示端口 B 的 USART1 Session 日志与会话帧',
+            trailing: Text(
+              '${portBLogs.length} 条',
+              style: GoogleFonts.ibmPlexMono(
+                color: const Color(0xFF8FB6C8),
+                fontSize: 11,
               ),
-            ],
+            ),
           ),
-          const SizedBox(height: 6),
-          // 使用固定高度代替 Expanded，避免在 ListView 内产生无限高度冲突
+          const SizedBox(height: 12),
           SizedBox(
-            height: 200,
+            height: (MediaQuery.of(context).size.height * 0.48)
+                .clamp(260, 620)
+                .toDouble(),
             child: Container(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: const Color(0xFF0B1E3A),
+                color: const Color(0xFF071625),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFF2D4F7E)),
+                border: Border.all(color: const Color(0xFF254963)),
               ),
-              child:
-                  controller.logs
-                      .where((e) => e.portLabel.contains('端口 B'))
-                      .isEmpty
+              child: portBLogs.isEmpty
                   ? Center(
                       child: Text(
-                        '等待端口 B 日志数据\u2026',
+                        '等待端口 B 日志数据...',
                         style: GoogleFonts.ibmPlexSans(
                           color: const Color(0xFFA7C7EB),
                           fontSize: 12,
                         ),
                       ),
                     )
-                  : ListView(
-                      children: controller.logs
-                          .where((e) => e.portLabel.contains('端口 B'))
-                          .map(
-                            (e) => Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 2),
-                              child: Text(
-                                e.pretty,
-                                style: GoogleFonts.ibmPlexMono(
-                                  color: e.direction == 'TX'
-                                      ? const Color(0xFFFFE082)
-                                      : e.direction == 'LOG'
-                                      ? const Color(0xFF90A4AE)
-                                      : const Color(0xFF9FFFC9),
-                                  fontSize: 11,
-                                  height: 1.3,
-                                ),
-                              ),
+                  : ListView.builder(
+                      itemCount: portBLogs.length,
+                      itemBuilder: (_, i) {
+                        final item = portBLogs[i];
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: SelectableText(
+                            item.pretty,
+                            style: GoogleFonts.ibmPlexMono(
+                              color: item.direction == 'TX'
+                                  ? const Color(0xFFFFE082)
+                                  : item.direction == 'LOG'
+                                  ? const Color(0xFF90A4AE)
+                                  : const Color(0xFF9FFFC9),
+                              fontSize: 11,
+                              height: 1.35,
                             ),
-                          )
-                          .toList(),
+                          ),
+                        );
+                      },
                     ),
             ),
           ),
@@ -2511,21 +2778,24 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: const Color(0xFF233A62)),
       ),
-      child: ExpansionTile(
-        tilePadding: const EdgeInsets.symmetric(horizontal: 14),
-        childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
-        initiallyExpanded: params.length <= 6,
-        title: Text(
-          '$groupName (${params.length}项)',
-          style: GoogleFonts.ibmPlexSans(
-            color: const Color(0xFF5ED0FF),
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
+      child: Material(
+        color: Colors.transparent,
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+          initiallyExpanded: params.length <= 6,
+          title: Text(
+            '$groupName (${params.length}项)',
+            style: GoogleFonts.ibmPlexSans(
+              color: const Color(0xFF5ED0FF),
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
           ),
+          children: <Widget>[
+            for (final p in params) _buildParamRow(controller, nodeAddr, p),
+          ],
         ),
-        children: <Widget>[
-          for (final p in params) _buildParamRow(controller, nodeAddr, p),
-        ],
       ),
     );
   }
@@ -3094,18 +3364,34 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                 taskStats.isEmpty
                     ? Container(
                         width: double.infinity,
-                        padding: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
                           color: const Color(0xFF0B1E3A),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(color: const Color(0xFF2D4F7E)),
                         ),
-                        child: Text(
-                          '暂无完整任务栈快照，请等待固件输出 STACK_SNAPSHOT。',
-                          style: GoogleFonts.ibmPlexSans(
-                            color: const Color(0xFFA7C7EB),
-                            fontSize: 12,
-                          ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            const Icon(
+                              Icons.terminal,
+                              color: Color(0xFF54D6C6),
+                              size: 18,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                '暂无完整任务栈快照。新协议下，任务栈快照从 USART1 Session 日志解析：'
+                                '收到 LOG_PUSH 中的 STACK_SNAPSHOT_BEGIN / STACK_TASK / '
+                                'STACK_SNAPSHOT_END 后会自动刷新。',
+                                style: GoogleFonts.ibmPlexSans(
+                                  color: const Color(0xFFA7C7EB),
+                                  fontSize: 12,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       )
                     : _buildStackStatsTable(
