@@ -2625,7 +2625,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
       () => TextEditingController(text: value?.toString() ?? ''),
     );
     final raw = value?.toString() ?? '?';
-    final inRange = _validateParam(param, editor.text);
+    final inRange = value != null && value >= param.min && value <= param.max;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
@@ -2759,13 +2759,6 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
         onPressed: () => _readParam(controller, paramId),
       ),
     );
-  }
-
-  /// 校验参数值是否在范围内
-  bool _validateParam(HmiSessionParamDef param, String text) {
-    final v = int.tryParse(text.trim());
-    if (v == null) return false;
-    return v >= param.min && v <= param.max;
   }
 
   /// 读取单个参数
