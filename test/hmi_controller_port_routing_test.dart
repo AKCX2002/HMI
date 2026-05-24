@@ -67,7 +67,7 @@ void main() {
     expect(heaterDuty!.name, '加热占空比');
     expect(heaterDuty.unit, '‰');
     expect(heaterDuty.min, 0);
-    expect(heaterDuty.max, 1000);
+    expect(heaterDuty.max, 100);
     expect(heaterDuty.dgusAddr, 0x2082);
   });
 
