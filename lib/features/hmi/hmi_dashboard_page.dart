@@ -476,7 +476,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  '上位机控制台',
+                  controller.deviceName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.ibmPlexSans(
@@ -502,7 +502,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
             children: <Widget>[
               Expanded(
                 child: Text(
-                  '上位机控制台',
+                  controller.deviceName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.ibmPlexSans(
@@ -576,6 +576,8 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
           _buildSinglePortBar(controller, portA: false),
           const SizedBox(height: 12),
           _buildPortBPanel(controller),
+          const SizedBox(height: 12),
+          _buildUsart1ControlPanel(controller),
         ],
       ),
     );
@@ -2118,6 +2120,44 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  // ────────────── USART1 Session 控制命令快捷面板 ──────────────
+
+  Widget _buildUsart1ControlPanel(HmiController controller) {
+    final connected = controller.isConnectedB;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF102744),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFF2D4F7E)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          _buildUsart1SectionHeader(
+            icon: Icons.gamepad_outlined,
+            title: '快捷控制',
+            subtitle: '通过 Session 协议透传 20B 控制命令',
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              _miniBtn('启动', connected, () => controller.sessionControlRunState(1)),
+              _miniBtn('停机', connected, () => controller.sessionControlRunState(0)),
+              _miniBtn('出袋', connected, () => controller.sessionTriggerBag()),
+              _miniBtn('封口', connected, () => controller.sessionTriggerSeal()),
+              _miniBtn('投料', connected, () => controller.sessionTriggerDeliver()),
+              _miniBtn('清标志', connected, () => controller.sessionClearFlag(1)),
+              _miniBtn('复位', connected, () => controller.sessionResetFault(0)),
+            ],
+          ),
         ],
       ),
     );

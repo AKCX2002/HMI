@@ -256,6 +256,7 @@ class HmiController extends ChangeNotifier {
   List<String> _portsA = <String>[];
   List<String> _portsB = <String>[];
   int _sessionSeq = 1;
+  String _deviceName = '打包机';
   HmiSessionClientState _sessionState = HmiSessionClientState.disconnected;
   bool _sessionSyncInProgress = false;
   int _sessionSubscriptionMask = 0;
@@ -282,6 +283,7 @@ class HmiController extends ChangeNotifier {
   String? get selectedPort => _portAConfig.portName;
 
   String? get statusMessage => _statusMessage;
+  String get deviceName => _deviceName;
   HmiRetryPolicy get retryPolicy => _retryPolicy;
   HmiSessionClientState get sessionState => _sessionState;
   bool get sessionSyncInProgress => _sessionSyncInProgress;
@@ -887,6 +889,99 @@ class HmiController extends ChangeNotifier {
     return resp != null && resp.payload.isNotEmpty && resp.payload[0] == 0;
   }
 
+  // ────────────── USART1 Session 控制命令 (0x30~0x37) ──────────────
+
+  /// 启停控制。action: 0=停机, 1=启动。
+  Future<bool> sessionControlRunState(int action) async {
+    final resp = await _runSessionCommand(
+      command: HmiSessionCommand.controlRunState,
+      payload: <int>[action & 0xFF],
+      label: 'Session启停',
+    );
+    return resp != null && resp.payload.isNotEmpty && resp.payload[0] == 0;
+  }
+
+  /// 出袋命令。action: 0=查询, 1=启动, 2=完成查询。
+  /// clearDone: true=先清 done 标志再查询。
+  Future<bool> sessionTriggerBag({int action = 1, bool clearDone = true}) async {
+    final resp = await _runSessionCommand(
+      command: HmiSessionCommand.triggerBag,
+      payload: <int>[action & 0xFF, clearDone ? 0 : 1],
+      label: 'Session出袋',
+    );
+    return resp != null && resp.payload.isNotEmpty && resp.payload[0] == 0;
+  }
+
+  /// 封口命令。
+  Future<bool> sessionTriggerSeal({int action = 1, bool clearDone = true}) async {
+    final resp = await _runSessionCommand(
+      command: HmiSessionCommand.triggerSeal,
+      payload: <int>[action & 0xFF, clearDone ? 0 : 1],
+      label: 'Session封口',
+    );
+    return resp != null && resp.payload.isNotEmpty && resp.payload[0] == 0;
+  }
+
+  /// 投料命令。
+  Future<bool> sessionTriggerDeliver({int action = 1, bool clearDone = true}) async {
+    final resp = await _runSessionCommand(
+      command: HmiSessionCommand.triggerDeliver,
+      payload: <int>[action & 0xFF, clearDone ? 0 : 1],
+      label: 'Session投料',
+    );
+    return resp != null && resp.payload.isNotEmpty && resp.payload[0] == 0;
+  }
+
+  /// 清除完成标志。flagType: 1=出袋, 2=封口, 3=投料。
+  Future<bool> sessionClearFlag(int flagType) async {
+    final resp = await _runSessionCommand(
+      command: HmiSessionCommand.clearFlag,
+      payload: <int>[flagType & 0xFF],
+      label: 'Session清标志',
+    );
+    return resp != null && resp.payload.isNotEmpty && resp.payload[0] == 0;
+  }
+
+  /// 故障复位。scope: 0=清报警码, 1=清锁存, 2=全部复位+停机。
+  Future<bool> sessionResetFault(int scope) async {
+    final resp = await _runSessionCommand(
+      command: HmiSessionCommand.resetFault,
+      payload: <int>[scope & 0xFF],
+      label: 'Session复位',
+    );
+    return resp != null && resp.payload.isNotEmpty && resp.payload[0] == 0;
+  }
+
+  /// 步进电机点动。motorId: 电机编号, direction: 0=正 1=反, pulses: 脉冲数。
+  Future<bool> sessionStepperJog(int motorId, int direction, int pulses) async {
+    final resp = await _runSessionCommand(
+      command: HmiSessionCommand.stepperJog,
+      payload: <int>[
+        motorId & 0xFF,
+        direction & 0xFF,
+        pulses & 0xFF,
+        (pulses >> 8) & 0xFF,
+      ],
+      label: 'Session步进点动',
+    );
+    return resp != null && resp.payload.isNotEmpty && resp.payload[0] == 0;
+  }
+
+  /// 直流电机点动。motorId: 1 或 2, direction: 0=正 1=反, durationMs: 时长。
+  Future<bool> sessionDcMotorJog(int motorId, int direction, int durationMs) async {
+    final resp = await _runSessionCommand(
+      command: HmiSessionCommand.dcMotorJog,
+      payload: <int>[
+        motorId & 0xFF,
+        direction & 0xFF,
+        durationMs & 0xFF,
+        (durationMs >> 8) & 0xFF,
+      ],
+      label: 'Session直流点动',
+    );
+    return resp != null && resp.payload.isNotEmpty && resp.payload[0] == 0;
+  }
+
   /// 读取 USART1 Session 聚合系统信息。
   Future<List<int>?> sendDgusSystemInfo({
     required int nodeAddress,
@@ -1086,6 +1181,7 @@ class HmiController extends ChangeNotifier {
     _sessionParams.clear();
     _sessionParamValues.clear();
     _sessionEvents.clear();
+    _deviceName = '打包机';
   }
 
   Future<void> syncSessionCatalog() async {
@@ -1122,6 +1218,10 @@ class HmiController extends ChangeNotifier {
       if (info == null || info.payload.length < 4 || info.payload[0] != 0) {
         _sessionState = HmiSessionClientState.degraded;
         return;
+      }
+
+      if (info.payload.length > 5) {
+        _deviceName = utf8.decode(info.payload.sublist(5));
       }
 
       final groups = await _fetchGroupCatalog();
