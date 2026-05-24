@@ -367,7 +367,7 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
       dropdownColor: const Color(0xFF122B4D),
       style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
       isDense: true,
-      items: HmiDataBits.values
+      items: HmiPortConfig.supportedDataBits
           .map((v) => DropdownMenuItem<HmiDataBits>(
                 value: v,
                 child: Text(v.label, style: const TextStyle(fontSize: 12)),

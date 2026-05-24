@@ -6,12 +6,19 @@ import 'package:hmi_host/core/protocol/hmi_frame.dart';
 import 'package:hmi_host/core/serial/serial_transport.dart';
 import 'package:hmi_host/features/hmi/hmi_controller.dart';
 import 'package:hmi_host/features/hmi/hmi_param_config.dart';
+import 'package:hmi_host/features/hmi/hmi_port_config.dart';
 import 'package:hmi_host/features/hmi/hmi_session_frame.dart';
 
 class _FakeSerialTransport implements SerialTransport {
   final StreamController<Uint8List> _incoming =
       StreamController<Uint8List>.broadcast();
   bool _connected = true;
+  String? lastPortName;
+  int? lastBaudRate;
+  int? lastDataBits;
+  int? lastStopBits;
+  int? lastParity;
+  int? lastFlowControl;
 
   void emit(List<int> bytes) {
     _incoming.add(Uint8List.fromList(bytes));
@@ -30,6 +37,12 @@ class _FakeSerialTransport implements SerialTransport {
     int flowControl = 0,
   }) async {
     _connected = true;
+    lastPortName = portName;
+    lastBaudRate = baudRate;
+    lastDataBits = dataBits;
+    lastStopBits = stopBits;
+    lastParity = parity;
+    lastFlowControl = flowControl;
   }
 
   @override
@@ -104,6 +117,31 @@ void main() {
     expect(bagOutHz!.min, 0);
     expect(tearOffHz, isNotNull);
     expect(tearOffHz!.min, 0);
+  });
+
+  test('端口 A 连接时将不兼容的数据位收敛为 8-bit，并继续透传其余串口参数', () async {
+    final transportA = _FakeSerialTransport();
+    final controller = HmiController(transportA);
+
+    controller.setPortA('FAKE');
+    controller.setBaudRateA(19200);
+    controller.setDataBitsA(HmiDataBits.bits7);
+    controller.setStopBitsA(HmiStopBits.two);
+    controller.setParityA(HmiParity.even);
+    controller.setFlowControlA(HmiFlowControl.rtsCts);
+
+    await controller.connectPortA();
+
+    expect(controller.portAConfig.dataBits, HmiDataBits.bits8);
+    expect(transportA.lastPortName, 'FAKE');
+    expect(transportA.lastBaudRate, 19200);
+    expect(transportA.lastDataBits, 8);
+    expect(transportA.lastStopBits, 2);
+    expect(transportA.lastParity, 2);
+    expect(transportA.lastFlowControl, 1);
+
+    controller.dispose();
+    await transportA.dispose();
   });
 
   test('端口 A 只解析 20 字节主协议，不消费 DGUS 日志帧', () async {

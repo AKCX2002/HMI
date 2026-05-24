@@ -49,6 +49,19 @@ enum HmiFlowControl {
 
 /// 单个串口连接配置。
 class HmiPortConfig {
+  /// 当前协议族可安全工作的 data bits 列表。
+  ///
+  /// 现有 USART3 固定 20B 帧与 USART1 Session 帧都依赖 8-bit 字节值，
+  /// 例如 `0xAF/0xBF/0xAA` 等高位非零字节，因此暂不开放 7-bit 及以下配置。
+  static const List<HmiDataBits> supportedDataBits = <HmiDataBits>[
+    HmiDataBits.bits8,
+  ];
+
+  /// 将外部输入收敛为当前协议支持的数据位。
+  static HmiDataBits normalizeDataBits(HmiDataBits value) {
+    return supportedDataBits.contains(value) ? value : HmiDataBits.bits8;
+  }
+
   /// 创建串口配置。
   ///
   /// [portName] 串口名称，如 `"COM3"` / `"/dev/ttyUSB0"`。
@@ -59,16 +72,16 @@ class HmiPortConfig {
   /// [flowControl] 流控制，默认无。
   /// [crcAlgorithm] CRC 算法，默认 CRC16-Modbus。
   /// [label] 显示标签，如 `"端口 A（上位主控）"`。
-  const HmiPortConfig({
+  HmiPortConfig({
     this.portName,
     this.baudRate = 115200,
-    this.dataBits = HmiDataBits.bits8,
+    HmiDataBits dataBits = HmiDataBits.bits8,
     this.stopBits = HmiStopBits.one,
     this.parity = HmiParity.none,
     this.flowControl = HmiFlowControl.none,
     this.crcAlgorithm = CrcAlgorithm.modbus,
     this.label = '',
-  });
+  }) : dataBits = normalizeDataBits(dataBits);
 
   /// 串口名称。
   final String? portName;
