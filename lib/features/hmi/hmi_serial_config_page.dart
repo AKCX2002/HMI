@@ -317,6 +317,23 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
       dropdownColor: const Color(0xFF122B4D),
       style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
       isDense: true,
+      selectedItemBuilder: (_) {
+        return <String?>[null, ...ports].map((p) {
+          final label = p ?? '— 未选择 —';
+          final color = p == null
+              ? const Color(0xFF888888)
+              : const Color(0xFFD7E8FF);
+          return Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: color, fontSize: 12),
+            ),
+          );
+        }).toList();
+      },
       items: <DropdownMenuItem<String?>>[
         const DropdownMenuItem<String?>(
           value: null,
@@ -325,7 +342,12 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
         ...ports.map(
           (p) => DropdownMenuItem<String?>(
             value: p,
-            child: Text(p, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
+            child: Text(
+              p,
+              style: const TextStyle(fontSize: 12),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         ),
       ],

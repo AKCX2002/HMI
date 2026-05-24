@@ -127,6 +127,7 @@
 - 不要假设串口字节流按帧对齐到达，必须做缓冲与粘包拆包
 - 打包机节点响应地址为 `0x00`，20B 接收同步不能只识别 `0xAF/0xBF`
 - 不要在同一端口同时跑 DGUS 与 20B 解析，否则容易把异协议字节流误判成有效帧
+- Android USB Host 已启用 `SerialInputOutputManager` 时，发送路径必须复用其 `writeAsync(...)`，不要在读线程运行期间并发直调 `port.write(...)`
 - XYZ 设备测试 `target_id` 按低字节在前传输: `data[1]=low`，`data[2]=high`
 - 不要在 UI 层拼接原始帧，避免维护失控
 - Android 构建可能受本机 Java 版本影响，需按 Flutter 提示处理

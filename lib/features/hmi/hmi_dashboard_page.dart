@@ -729,10 +729,28 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
 
         final portDropdown = DropdownButtonFormField<String?>(
           initialValue: selectedPort,
+          isExpanded: true,
           decoration: _miniInputDeco('串口'),
           dropdownColor: const Color(0xFF122B4D),
           style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 11),
           isDense: true,
+          selectedItemBuilder: (_) {
+            return <String?>[null, ...ports].map((p) {
+              final label = p ?? '— 关闭 —';
+              final color = p == null
+                  ? const Color(0xFF888888)
+                  : const Color(0xFFD7E8FF);
+              return Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: color, fontSize: 11),
+                ),
+              );
+            }).toList();
+          },
           items: <DropdownMenuItem<String?>>[
             // 关闭选项（清空串口选择）
             const DropdownMenuItem<String?>(
@@ -749,6 +767,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                 child: Text(
                   p,
                   style: const TextStyle(fontSize: 11),
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),

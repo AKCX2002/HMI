@@ -19,13 +19,11 @@ import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
-import java.io.IOException
 
 private const val METHOD_CHANNEL_NAME = "hmi_host/android_usb_serial/methods"
 private const val EVENT_CHANNEL_NAME = "hmi_host/android_usb_serial/events"
 private const val ACTION_USB_PERMISSION =
     "com.hmi.host.hmi_host.USB_SERIAL_PERMISSION"
-private const val WRITE_TIMEOUT_MS = 1000
 
 class AndroidUsbSerialBridge(
     private val activity: Activity,
@@ -335,9 +333,9 @@ class AndroidUsbSerialBridge(
                     return
                 }
         try {
-            session.port.write(bytes, WRITE_TIMEOUT_MS)
+            session.ioManager.writeAsync(bytes)
             result.success(bytes.size)
-        } catch (e: IOException) {
+        } catch (e: Exception) {
             closeSession(transportId, notifyClosed = true)
             result.error("write_failed", e.message ?: "USB 串口写入失败", null)
         }

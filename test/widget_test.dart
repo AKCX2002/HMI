@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:ui';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hmi_host/core/serial/serial_transport.dart';
 import 'package:hmi_host/features/hmi/hmi_controller.dart';
@@ -8,15 +10,18 @@ import 'package:hmi_host/features/hmi/hmi_session_frame.dart';
 import 'package:hmi_host/main.dart' show HmiHostApp;
 
 class _FakeSerialTransport implements SerialTransport {
+  _FakeSerialTransport({List<String>? ports}) : _ports = ports ?? const <String>['COM1'];
+
   final StreamController<Uint8List> _incoming =
       StreamController<Uint8List>.broadcast();
+  final List<String> _ports;
 
   void emit(List<int> bytes) {
     _incoming.add(Uint8List.fromList(bytes));
   }
 
   @override
-  Future<List<String>> availablePorts() async => const <String>['COM1'];
+  Future<List<String>> availablePorts() async => _ports;
 
   @override
   Future<void> connect({
@@ -141,6 +146,44 @@ void main() {
 
     expect(find.textContaining('USART1 Session 日志'), findsOneWidget);
     expect(find.textContaining('等待固件输出 STACK_SNAPSHOT'), findsNothing);
+
+    controller.dispose();
+    await transportA.dispose();
+    await transportB.dispose();
+  });
+
+  testWidgets('超长 Android 串口名在窄布局下不触发溢出', (WidgetTester tester) async {
+    const longPortName =
+        'USB Serial Device with Very Long Android Friendly Name /dev/bus/usb/001/002';
+    final transportA = _FakeSerialTransport(ports: const <String>[longPortName]);
+    final transportB = _FakeSerialTransport();
+    final controller = HmiController(transportA, transportB: transportB);
+    await controller.refreshPortsA();
+    controller.setPortA(longPortName);
+
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final app = HmiHostApp(controller: controller);
+    await tester.pumpWidget(app);
+    await tester.pump();
+
+    final portTextWidgets = tester
+        .widgetList<Text>(find.text(longPortName))
+        .where((Text widget) => widget.data == longPortName)
+        .toList();
+    expect(portTextWidgets, isNotEmpty);
+    expect(
+      portTextWidgets.any(
+        (Text widget) =>
+            widget.maxLines == 1 &&
+            widget.overflow == TextOverflow.ellipsis,
+      ),
+      isTrue,
+    );
+    expect(tester.takeException(), isNull);
 
     controller.dispose();
     await transportA.dispose();

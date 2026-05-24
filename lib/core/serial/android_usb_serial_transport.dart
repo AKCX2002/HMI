@@ -95,6 +95,9 @@ class AndroidUsbSerialTransport implements SerialTransport {
   @override
   bool get isConnected => _isConnected;
 
+  @visibleForTesting
+  int get debugTransportId => _transportId;
+
   @override
   Stream<Uint8List> get incomingBytes => _incomingController.stream;
 
@@ -134,6 +137,13 @@ class AndroidUsbSerialTransport implements SerialTransport {
           _incomingController.add(Uint8List.fromList(bytes));
         }
         break;
+      case 'error':
+        _isConnected = false;
+        final message = event['message']?.toString();
+        if (message != null && message.isNotEmpty) {
+          debugPrint('Android USB 串口错误: $message');
+        }
+        break;
       case 'detached':
       case 'closed':
         _isConnected = false;
@@ -141,6 +151,11 @@ class AndroidUsbSerialTransport implements SerialTransport {
       default:
         break;
     }
+  }
+
+  @visibleForTesting
+  void debugHandleNativeEvent(dynamic event) {
+    _handleNativeEvent(event);
   }
 
   /// 释放内部资源。

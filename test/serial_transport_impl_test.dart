@@ -94,5 +94,20 @@ void main() {
       expect((calls[1].arguments as Map<Object?, Object?>)['baudRate'], 9600);
       expect((calls[2].arguments as Map<Object?, Object?>)['bytes'], isA<Uint8List>());
     });
+
+    test('native error 事件会立刻清除连接状态', () async {
+      final transport = AndroidUsbSerialTransport();
+
+      await transport.connect(portName: 'DAPLink CDC ACM', baudRate: 9600);
+      expect(transport.isConnected, isTrue);
+
+      transport.debugHandleNativeEvent(<Object?, Object?>{
+        'transportId': transport.debugTransportId,
+        'type': 'error',
+        'message': 'write failed',
+      });
+
+      expect(transport.isConnected, isFalse);
+    });
   });
 }
