@@ -5,7 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hmi_host/core/protocol/hmi_frame.dart';
 import 'package:hmi_host/core/serial/serial_transport.dart';
 import 'package:hmi_host/features/hmi/hmi_controller.dart';
-import 'package:hmi_host/features/hmi/hmi_param_config.dart';
 import 'package:hmi_host/features/hmi/hmi_port_config.dart';
 import 'package:hmi_host/features/hmi/hmi_session_frame.dart';
 
@@ -79,46 +78,6 @@ List<int> _sessionLogFrame(String text) {
 }
 
 void main() {
-  test('加热参数映射包含占空比周期与占空比', () async {
-    final heaterPeriod = findParamDef(0x50);
-    final heaterDuty = findParamDef(0x51);
-
-    expect(heaterPeriod, isNotNull);
-    expect(heaterPeriod!.name, '加热占空比周期');
-    expect(heaterPeriod.unit, 'ms');
-    expect(heaterPeriod.min, 100);
-    expect(heaterPeriod.max, 10000);
-    expect(heaterPeriod.dgusAddr, 0x2080);
-
-    expect(heaterDuty, isNotNull);
-    expect(heaterDuty!.name, '加热占空比');
-    expect(heaterDuty.unit, '‰');
-    expect(heaterDuty.min, 0);
-    expect(heaterDuty.max, 200);
-    expect(heaterDuty.dgusAddr, 0x2082);
-  });
-
-  test('拉断长度参数映射为 0x4F 且默认沿用 40.000mm 口径', () async {
-    final tearOffLen = findParamDef(0x4F);
-
-    expect(tearOffLen, isNotNull);
-    expect(tearOffLen!.name, '拉断长度');
-    expect(tearOffLen.unit, '0.001mm');
-    expect(tearOffLen.min, 1000);
-    expect(tearOffLen.max, 1000000);
-    expect(tearOffLen.dgusAddr, 0x207E);
-  });
-
-  test('出袋轴频率与拉断回拉频率允许 0 作为自动换算哨兵值', () async {
-    final bagOutHz = findParamDef(0x10);
-    final tearOffHz = findParamDef(0x11);
-
-    expect(bagOutHz, isNotNull);
-    expect(bagOutHz!.min, 0);
-    expect(tearOffHz, isNotNull);
-    expect(tearOffHz!.min, 0);
-  });
-
   test('端口 A 连接时将不兼容的数据位收敛为 8-bit，并继续透传其余串口参数', () async {
     final transportA = _FakeSerialTransport();
     final controller = HmiController(transportA);

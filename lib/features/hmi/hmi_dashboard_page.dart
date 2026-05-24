@@ -1985,6 +1985,47 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                   fontSize: 12,
                 ),
               ),
+              const SizedBox(height: 10),
+              LayoutBuilder(
+                builder: (_, constraints) {
+                  return Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: <Widget>[
+                      _opBtn(
+                        '读取全部',
+                        _paramsLoading,
+                        () => _readAllParams(controller),
+                      ),
+                      _opBtn(
+                        '保存EEPROM',
+                        false,
+                        () => _saveParams(controller),
+                      ),
+                      _opBtn(
+                        '加载EEPROM',
+                        false,
+                        () => _loadParams(controller, 0),
+                      ),
+                      _opBtn(
+                        '恢复默认',
+                        false,
+                        () => _loadParams(controller, 1),
+                      ),
+                    ],
+                  );
+                },
+              ),
+              if (_paramsStatus.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _paramsStatus,
+                  style: GoogleFonts.ibmPlexSans(
+                    color: const Color(0xFF9DC1EB),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -2467,94 +2508,20 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   // (removed unused _buildPortPanel)
   Widget _buildSettingsPage(HmiController controller) {
     final params = controller.sessionCatalogByGroup;
-    final nodeAddr = _safeHex(_packerNodeAddr.text, fallback: 0xFA);
 
     return Container(
       color: const Color(0xFF08152A),
-      child: Column(
-        children: <Widget>[
-          // ── 工具栏 ──
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: const BoxDecoration(
-              color: Color(0xFF0B1E3A),
-              border: Border(bottom: BorderSide(color: Color(0xFF213D65))),
-            ),
-            child: LayoutBuilder(
-              builder: (_, constraints) {
-                final compact = constraints.maxWidth < 600;
-                return Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: <Widget>[
-                    SizedBox(
-                      width: compact ? 100 : 130,
-                      child: TextField(
-                        controller: _packerNodeAddr,
-                        smartQuotesType: SmartQuotesType.disabled,
-                        smartDashesType: SmartDashesType.disabled,
-                        style: GoogleFonts.ibmPlexMono(
-                          color: const Color(0xFFD6E9FF),
-                          fontSize: 13,
-                        ),
-                        decoration: const InputDecoration(
-                          labelText: '节点地址(HEX)',
-                          isDense: true,
-                        ),
-                      ),
-                    ),
-                    _opBtn(
-                      '读取全部',
-                      _paramsLoading,
-                      () => _readAllParams(controller, nodeAddr),
-                    ),
-                    _opBtn(
-                      '保存EEPROM',
-                      false,
-                      () => _saveParams(controller, nodeAddr),
-                    ),
-                    _opBtn(
-                      '加载EEPROM',
-                      false,
-                      () => _loadParams(controller, nodeAddr, 0),
-                    ),
-                    _opBtn(
-                      '恢复默认',
-                      false,
-                      () => _loadParams(controller, nodeAddr, 1),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
-          // ── 状态栏 ──
-          if (_paramsStatus.isNotEmpty)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-              color: const Color(0x2214345A),
-              child: Text(
-                _paramsStatus,
-                style: GoogleFonts.ibmPlexSans(
-                  color: const Color(0xFF9DC1EB),
-                  fontSize: 12,
-                ),
-              ),
-            ),
-          // ── 参数列表 ──
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(12),
-              children: <Widget>[
-                for (final group in params.entries) ...[
-                  _buildParamGroup(controller, nodeAddr, group.key, group.value),
-                  const SizedBox(height: 8),
-                ],
-              ],
-            ),
-          ),
-        ],
+      child: Expanded(
+        child: ListView(
+          padding: const EdgeInsets.all(12),
+          children: <Widget>[
+            for (final group in params.entries) ...[
+              _buildParamGroup(
+                  controller, group.key, group.value),
+              const SizedBox(height: 8),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -2594,7 +2561,6 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   /// 参数分组折叠面板
   Widget _buildParamGroup(
     HmiController controller,
-    int nodeAddr,
     HmiSessionGroupDef group,
     List<HmiSessionParamDef> params,
   ) {
@@ -2619,7 +2585,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
             ),
           ),
           children: <Widget>[
-            for (final p in params) _buildParamRow(controller, nodeAddr, p),
+            for (final p in params) _buildParamRow(controller, p),
           ],
         ),
       ),
@@ -2653,7 +2619,6 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   /// 单个参数行
   Widget _buildParamRow(
     HmiController controller,
-    int nodeAddr,
     HmiSessionParamDef param,
   ) {
     final value = controller.sessionParamValues[param.id] ?? _paramValues[param.id];
@@ -2686,7 +2651,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                             child: _paramField(editor, inRange),
                           ),
                         const SizedBox(width: 4),
-                        _writeBtn(controller, nodeAddr, param, editor),
+                        _writeBtn(controller, param, editor),
                       ],
                     ),
                   ],
@@ -2703,9 +2668,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                       SizedBox(width: 80, child: _paramField(editor, inRange)),
                       const SizedBox(width: 4),
                     ],
-                    _writeBtn(controller, nodeAddr, param, editor),
+                    _writeBtn(controller, param, editor),
                     const SizedBox(width: 4),
-                    _readBtn(controller, nodeAddr, param.id),
+                    _readBtn(controller, param.id),
                   ],
                 );
         },
@@ -2761,7 +2726,6 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
 
   Widget _writeBtn(
     HmiController controller,
-    int nodeAddr,
     HmiSessionParamDef param,
     TextEditingController editor,
   ) {
@@ -2770,7 +2734,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
       child: ElevatedButton(
         onPressed: param.isReadOnly
             ? null
-            : () => _writeParam(controller, nodeAddr, param, editor),
+            : () => _writeParam(controller, param, editor),
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color(0xFF1A3A5C),
           foregroundColor: const Color(0xFFD6E9FF),
@@ -2785,7 +2749,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     );
   }
 
-  Widget _readBtn(HmiController controller, int nodeAddr, int paramId) {
+  Widget _readBtn(HmiController controller, int paramId) {
     return SizedBox(
       height: 32,
       width: 32,
@@ -2794,7 +2758,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
         tooltip: '读取参数当前值',
         color: const Color(0xFF5ED0FF),
         padding: EdgeInsets.zero,
-        onPressed: () => _readParam(controller, nodeAddr, paramId),
+        onPressed: () => _readParam(controller, paramId),
       ),
     );
   }
@@ -2809,13 +2773,11 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   /// 读取单个参数
   Future<void> _readParam(
     HmiController controller,
-    int nodeAddr,
     int paramId,
   ) async {
     final value = await controller.sendParamRead(
-      nodeAddress: nodeAddr,
+      nodeAddress: 0xFA,
       paramId: paramId,
-      usePortB: _dgusUsePortB,
     );
     if (!mounted) return;
     if (value != null) {
@@ -2837,7 +2799,6 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   /// 写入单个参数
   Future<void> _writeParam(
     HmiController controller,
-    int nodeAddr,
     HmiSessionParamDef param,
     TextEditingController editor,
   ) async {
@@ -2854,10 +2815,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
       return;
     }
     final result = await controller.sendParamWrite(
-      nodeAddress: nodeAddr,
+      nodeAddress: 0xFA,
       paramId: param.id,
       value: v,
-      usePortB: _dgusUsePortB,
     );
     if (!mounted) return;
     if (result != null) {
@@ -2887,54 +2847,32 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   }
 
   /// 批量读取全部参数
-  Future<void> _readAllParams(HmiController controller, int nodeAddr) async {
-    setState(() {
-      _paramsLoading = true;
-      _paramsStatus = '正在读取全部参数\u2026';
-    });
-    int count = 0;
-    int errors = 0;
-    for (final p in controller.sessionParams) {
-      try {
-        final value = await controller.sendParamRead(
-          nodeAddress: nodeAddr,
-          paramId: p.id,
-          usePortB: _dgusUsePortB,
-        );
-        if (value != null) {
-          _paramValues[p.id] = value;
-          _paramEditors[p.id]?.text = value.toString();
-          count++;
-        } else {
-          errors++;
-        }
-      } catch (e) {
-        errors++;
+  Future<void> _readAllParams(HmiController controller) async {
+    try {
+      await controller.readAllSessionParams();
+      final count = controller.sessionParamValues.length;
+      final total = controller.sessionParams.length;
+      if (mounted) {
+        setState(() {
+          _paramsLoading = false;
+          _paramsStatus = total > 0
+              ? '读取完成: $count/$total 个参数'
+              : '读取完成: 无参数';
+        });
       }
-      // 每读 10 个更新一次 UI
-      if ((count + errors) % 10 == 0 && mounted) {
-        setState(
-          () => _paramsStatus =
-              '已读取 $count/${controller.sessionParams.length}\u2026 ($errors项失败)',
-        );
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _paramsLoading = false;
+          _paramsStatus = '读取失败: $e';
+        });
       }
-    }
-    if (mounted) {
-      setState(() {
-        _paramsLoading = false;
-        _paramsStatus = errors > 0
-            ? '读取完成: $count/${controller.sessionParams.length} 个参数 ($errors 项失败)'
-            : '读取完成: $count/${controller.sessionParams.length} 个参数';
-      });
     }
   }
 
   /// 保存到 EEPROM
-  Future<void> _saveParams(HmiController controller, int nodeAddr) async {
-    final ok = await controller.sendParamSave(
-      nodeAddress: nodeAddr,
-      usePortB: _dgusUsePortB,
-    );
+  Future<void> _saveParams(HmiController controller) async {
+    final ok = await controller.sendParamSave(nodeAddress: 0xFA);
     if (mounted) {
       setState(() => _paramsStatus = ok ? '已保存到 EEPROM' : '保存失败');
     }
@@ -2943,7 +2881,6 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   /// 加载/恢复参数
   Future<void> _loadParams(
     HmiController controller,
-    int nodeAddr,
     int action,
   ) async {
     // 恢复默认值需要确认
@@ -2968,19 +2905,17 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
       if (confirmed != true) return;
     }
     final ok = await controller.sendParamLoad(
-      nodeAddress: nodeAddr,
+      nodeAddress: 0xFA,
       action: action,
-      usePortB: _dgusUsePortB,
     );
     if (mounted) {
       setState(
         () => _paramsStatus = action == 0
             ? (ok ? '已从 EEPROM 加载' : '加载失败')
-            : (ok ? '已恢复默认值' : '恢复失败'),
+            : (ok ? '已恢复默认值，请重新读取参数' : '恢复失败'),
       );
       if (ok) {
-        // 重新读取全部参数显示最新值
-        _readAllParams(controller, nodeAddr);
+        _readAllParams(controller);
       }
     }
   }
