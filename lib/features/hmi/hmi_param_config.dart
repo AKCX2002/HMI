@@ -386,9 +386,9 @@ const List<HmiParamDef> kParamDefs = <HmiParamDef>[
   HmiParamDef(
     id: 0x51,
     name: '加热占空比',
-    unit: '%',
+    unit: '‰',
     min: 0,
-    max: 100,
+    max: 1000,
     dgusAddr: 0x2082,
     group: '加热/打印机',
   ),
