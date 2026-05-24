@@ -66,10 +66,12 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
 
   /// 端口覆写开关：每个面板可独立选择物理串口发送命令
   bool _packerUsePortB = false;
-  bool _dgusUsePortB = true;
+  final bool _dgusUsePortB = true;
 
-  /// Port A 子标签页: 0=基础控制, 1=维护诊断, 2=电机点动
+  /// Port A 子标签页: 0=状态0x41, 1=封口0x43, 2=基础控制, 3=维护诊断, 4=电机点动
   int _packerSubTab = 0;
+  int _logDisplayMode = 2; /* 0=HEX, 1=文本, 2=HEX+文本 */
+  bool _logsPaused = false;
 
   /// 基础控制 0x40~0x44
   int _cmd40Action = 1;
@@ -213,7 +215,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   }
 
   Widget _buildCompactMenuBar() {
-    final menus = <String>['主控制台', '参数配置', '帧调试台', '协议日志', '栈水位统计'];
+    final menus = <String>['USART3调试', 'USART1会话', '帧调试台', '协议日志', '栈水位统计'];
     return Container(
       height: 48,
       decoration: const BoxDecoration(
@@ -287,8 +289,8 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
 
   Widget _buildSidebar(HmiController controller) {
     final menus = <(IconData, String)>[
-      (Icons.dashboard, '主控制台'),
-      (Icons.tune, '参数配置'),
+      (Icons.satellite_alt, 'USART3调试'),
+      (Icons.developer_mode, 'USART1会话'),
       (Icons.memory, '帧调试台'),
       (Icons.receipt_long, '协议日志'),
       (Icons.show_chart, '栈水位统计'),
@@ -432,7 +434,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                '端口 B: USART1 / DGUS(5A A5)',
+                                '端口 B: USART1 / HMI Session',
                                 style: GoogleFonts.ibmPlexMono(
                                   color: const Color(0xFF9EC7FF),
                                   fontSize: 10,
@@ -527,7 +529,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   Widget _buildWorkArea(HmiController controller) {
     switch (_menuIndex) {
       case 1:
-        return _buildSettingsPage(controller);
+        return _buildUsart1SessionPage(controller);
       case 2:
         return _buildFrameDebuggerPage(controller);
       case 3:
@@ -536,61 +538,88 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
         return _buildStackLevelPage(controller);
       case 0:
       default:
-        return _buildMainDashboard(controller);
+        return _buildUsart3DebugPage(controller);
     }
   }
 
-  /// ────────────── 主控制台：左右协议完整集成 ──────────────
-
-  Widget _buildMainDashboard(HmiController controller) {
+  Widget _buildUsart3DebugPage(HmiController controller) {
     return Container(
       color: const Color(0xFF08152A),
       child: ListView(
         padding: const EdgeInsets.all(12),
         children: <Widget>[
-          // ═══ 双端口配置栏 ═══
-          _buildDualPortBar(controller),
+          _buildSinglePortBar(controller, portA: true),
           const SizedBox(height: 12),
-          // ═══ 左右协议面板 ═══
-          LayoutBuilder(
-            builder: (_, constraints) {
-              final compact = constraints.maxWidth < 1000;
-              if (compact) {
-                return Column(
-                  children: <Widget>[
-                    _buildPortAPanel(controller),
-                    const SizedBox(height: 12),
-                    _buildPortBPanel(controller),
-                  ],
-                );
-              }
-              // 手动分配宽度，避免 Expanded + 无限高度冲突
-              final panelWidth = (constraints.maxWidth - 12) / 2;
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  SizedBox(
-                    width: panelWidth,
-                    child: _buildPortAPanel(controller),
-                  ),
-                  const SizedBox(width: 12),
-                  SizedBox(
-                    width: panelWidth,
-                    child: _buildPortBPanel(controller),
-                  ),
-                ],
-              );
-            },
-          ),
+          _buildPortAPanel(controller),
           const SizedBox(height: 12),
-          // ═══ 实时协议日志 ═══
           _buildLiveLogPanel(controller),
         ],
       ),
     );
   }
 
+  Widget _buildUsart1SessionPage(HmiController controller) {
+    return Container(
+      color: const Color(0xFF08152A),
+      child: ListView(
+        padding: const EdgeInsets.all(12),
+        children: <Widget>[
+          _buildSinglePortBar(controller, portA: false),
+          const SizedBox(height: 12),
+          _buildPortBPanel(controller),
+          const SizedBox(height: 12),
+          SizedBox(height: 620, child: _buildSettingsPage(controller)),
+          const SizedBox(height: 12),
+          _buildLiveLogPanel(controller),
+        ],
+      ),
+    );
+  }
+
+  // ignore: unused_element
+  Widget _buildMainDashboard(HmiController controller) =>
+      _buildUsart3DebugPage(controller);
+
+  Widget _buildSinglePortBar(HmiController controller, {required bool portA}) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0D1A30),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFF233A62)),
+      ),
+      child: _buildMiniPortConfig(
+        label: portA ? 'USART3 / 20B 调试' : 'USART1 / HMI Session',
+        isConnected: portA ? controller.isConnectedA : controller.isConnectedB,
+        ports: portA ? controller.portsA : controller.portsB,
+        selectedPort: portA
+            ? controller.portAConfig.portName
+            : controller.portBConfig.portName,
+        baudRate: portA
+            ? controller.portAConfig.baudRate
+            : controller.portBConfig.baudRate,
+        crcAlgorithm: portA
+            ? controller.portAConfig.crcAlgorithm
+            : controller.portBConfig.crcAlgorithm,
+        canEdit: portA ? !controller.isConnectedA : !controller.isConnectedB,
+        onPortChanged: portA ? controller.setPortA : controller.setPortB,
+        onBaudRateChanged: portA
+            ? controller.setBaudRateA
+            : controller.setBaudRateB,
+        onCrcChanged: portA
+            ? controller.setCrcAlgorithmA
+            : controller.setCrcAlgorithmB,
+        onRefresh: portA ? controller.refreshPortsA : controller.refreshPortsB,
+        onConnect: portA ? controller.connectPortA : controller.connectPortB,
+        onDisconnect: portA
+            ? controller.disconnectPortA
+            : controller.disconnectPortB,
+      ),
+    );
+  }
+
   /// ── 双端口紧凑配置栏 ──
+  // ignore: unused_element
   Widget _buildDualPortBar(HmiController controller) {
     return Container(
       padding: const EdgeInsets.all(10),
@@ -749,7 +778,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                 (a) => DropdownMenuItem<CrcAlgorithm>(
                   value: a,
                   child: Text(
-                    a.displayName,
+                    a == CrcAlgorithm.modbus ? 'Modbus' : 'DGUS',
                     style: const TextStyle(fontSize: 11),
                   ),
                 ),
@@ -985,9 +1014,11 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
           const Divider(color: Color(0xFF233A62), height: 1),
           const SizedBox(height: 6),
           // ── 子标签页内容 ──
-          if (_packerSubTab == 0) ..._buildBasicTab(controller, nodeAddr),
-          if (_packerSubTab == 1) ..._buildMaintTab(controller, nodeAddr),
-          if (_packerSubTab == 2) ..._buildMotorTab(controller, nodeAddr),
+          if (_packerSubTab == 0) ..._buildStatus41Tab(controller, nodeAddr),
+          if (_packerSubTab == 1) ..._buildSeal43Tab(controller, nodeAddr),
+          if (_packerSubTab == 2) ..._buildBasicTab(controller, nodeAddr),
+          if (_packerSubTab == 3) ..._buildMaintTab(controller, nodeAddr),
+          if (_packerSubTab == 4) ..._buildMotorTab(controller, nodeAddr),
         ],
       ),
     );
@@ -995,7 +1026,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
 
   /// 子标签页切换栏
   Widget _buildSubTabBar() {
-    const tabs = <String>['基础控制', '维护诊断', '电机点动'];
+    const tabs = <String>['0x41状态', '0x43封口', '基础控制', '维护诊断', '电机点动'];
     return Row(
       children: <Widget>[
         for (var i = 0; i < tabs.length; i++)
@@ -1033,6 +1064,63 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
           ),
       ],
     );
+  }
+
+  List<Widget> _buildStatus41Tab(HmiController controller, int nodeAddr) {
+    return <Widget>[
+      _cmdRow(
+        controller,
+        nodeAddr,
+        '0x41',
+        '状态查询',
+        onSend: () => _runCommand(
+          () => controller.sendPackerStatus(
+            nodeAddress: nodeAddr,
+            usePortB: false,
+          ),
+          '状态查询',
+        ),
+      ),
+    ];
+  }
+
+  List<Widget> _buildSeal43Tab(HmiController controller, int nodeAddr) {
+    return <Widget>[
+      _cmdRow(
+        controller,
+        nodeAddr,
+        '0x43',
+        '封口启动/查询',
+        config: _buildDropdown(
+          value: _cmd43Action,
+          items: const <int>[1, 0, 2],
+          labels: const <String>['启动', '查询', '完成?'],
+          onChanged: (v) => setState(() => _cmd43Action = v ?? 1),
+        ),
+        onSend: () => _runCommand(
+          () => controller.sendPackerTriggerSeal(
+            nodeAddress: nodeAddr,
+            action: _cmd43Action,
+            usePortB: false,
+          ),
+          '封口触发',
+        ),
+      ),
+      _cmdRow(
+        controller,
+        nodeAddr,
+        '0x45',
+        '清封口完成',
+        onSend: () => _runCommand(
+          () => controller.sendPackerClearFlag(
+            nodeAddress: nodeAddr,
+            flagId: 2,
+            usePortB: false,
+          ),
+          '清封口完成标志',
+        ),
+      ),
+    ];
   }
 
   /// ── 基础控制 0x40~0x44 ──
@@ -1620,7 +1708,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     );
   }
 
-  /// ── 端口 B 面板：右协议 (USART1 / 日志+DGUS调节) ──
+  /// ── 端口 B 面板：USART1 HMI Session ──
   Widget _buildPortBPanel(HmiController controller) {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -1642,7 +1730,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
               ),
               const SizedBox(width: 8),
               Text(
-                '端口 B — USART1 / DGUS(5A A5) 参数调节+日志',
+                '端口 B — USART1 / HMI Session 参数+日志',
                 style: GoogleFonts.ibmPlexSans(
                   color: const Color(0xFFE0EEFF),
                   fontSize: 15,
@@ -1652,31 +1740,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
             ],
           ),
           const SizedBox(height: 12),
-          // ── 端口覆写开关 ──
-          Row(
-            children: <Widget>[
-              Text(
-                '发送端口',
-                style: GoogleFonts.ibmPlexSans(
-                  color: const Color(0xFFA6C5EA),
-                  fontSize: 11,
-                ),
-              ),
-              const SizedBox(width: 8),
-              _buildPortToggle(
-                labelA: 'A',
-                labelB: 'B',
-                value: _dgusUsePortB,
-                onChanged: (v) => setState(() => _dgusUsePortB = v),
-                connectedA: controller.isConnectedA,
-                connectedB: controller.isConnectedB,
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          // ── DGUS 参数调节 ──
+          // ── 参数调节 ──
           Text(
-            'DGUS 参数调节（通过 USART1 的 5A A5 帧读写参数）',
+            '参数调节（通过 USART1 HMI Session 批量读写参数）',
             style: GoogleFonts.ibmPlexSans(
               color: const Color(0xFFA6C5EA),
               fontSize: 11,
@@ -2196,6 +2262,20 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                   fontSize: 11,
                 ),
               ),
+              const SizedBox(width: 8),
+              _buildDropdown(
+                value: _logDisplayMode,
+                items: const <int>[0, 1, 2],
+                labels: const <String>['HEX', '文本', 'HEX+文本'],
+                onChanged: (v) => setState(() => _logDisplayMode = v ?? 2),
+              ),
+              const SizedBox(width: 4),
+              _buildMiniToolButton(
+                icon: _logsPaused ? Icons.play_arrow : Icons.pause,
+                label: _logsPaused ? '继续' : '暂停',
+                enabled: true,
+                onPressed: () => setState(() => _logsPaused = !_logsPaused),
+              ),
               const SizedBox(width: 4),
               _buildMiniToolButton(
                 icon: Icons.copy_all,
@@ -2236,13 +2316,15 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                       ),
                     )
                   : ListView.builder(
-                      itemCount: controller.logs.length,
+                      itemCount: _logsPaused
+                          ? controller.logs.take(300).length
+                          : controller.logs.length,
                       itemBuilder: (_, i) {
                         final item = controller.logs[i];
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 2),
                           child: SelectableText(
-                            item.pretty,
+                            _formatLogForDisplay(item),
                             style: GoogleFonts.ibmPlexMono(
                               color: item.direction == 'TX'
                                   ? const Color(0xFFFFE082)
@@ -2261,6 +2343,22 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
         ],
       ),
     );
+  }
+
+  String _formatLogForDisplay(HmiLogEntry item) {
+    final time =
+        '${item.timestamp.hour.toString().padLeft(2, '0')}:'
+        '${item.timestamp.minute.toString().padLeft(2, '0')}:'
+        '${item.timestamp.second.toString().padLeft(2, '0')}.'
+        '${item.timestamp.millisecond.toString().padLeft(3, '0')}';
+    final prefix = '$time ${item.portLabel} ${item.direction}';
+    final hex = item.decoded.rawDataHex.isNotEmpty
+        ? item.decoded.rawDataHex
+        : item.frame.encode().map((e) => toHex2(e)).join(' ');
+    final text = item.decoded.summary;
+    if (_logDisplayMode == 0) return '$prefix  $hex';
+    if (_logDisplayMode == 1) return '$prefix  $text';
+    return '$prefix  $hex\n$text';
   }
 
   // (removed unused _buildPortPanel)

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hmi_host/core/serial/serial_transport.dart';
 import 'package:hmi_host/features/hmi/hmi_controller.dart';
+import 'package:hmi_host/features/hmi/hmi_session_frame.dart';
 import 'package:hmi_host/main.dart' show HmiHostApp;
 
 class _FakeSerialTransport implements SerialTransport {
@@ -40,9 +41,13 @@ class _FakeSerialTransport implements SerialTransport {
   }
 }
 
-List<int> _dgusLogFrame(String text) {
-  final bytes = text.codeUnits;
-  return <int>[0x5A, 0xA5, bytes.length + 3, 0x82, 0x30, 0x00, ...bytes];
+List<int> _sessionLogFrame(String text) {
+  return HmiSessionFrame(
+    type: HmiSessionFrameType.log,
+    sequence: 1,
+    command: HmiSessionCommand.logPush,
+    payload: Uint8List.fromList(<int>[3, ...text.codeUnits]),
+  ).encode();
 }
 
 void main() {
@@ -55,7 +60,7 @@ void main() {
     await tester.pumpWidget(app);
 
     expect(find.text('上位机控制台'), findsOneWidget);
-    expect(find.text('主控制台'), findsOneWidget);
+    expect(find.text('USART3调试'), findsOneWidget);
 
     await transportA.dispose();
     await transportB.dispose();
@@ -80,7 +85,7 @@ void main() {
       'STACK_SNAPSHOT_END',
     ];
     for (final line in lines) {
-      transportB.emit(_dgusLogFrame(line));
+      transportB.emit(_sessionLogFrame(line));
     }
     await tester.pump();
 

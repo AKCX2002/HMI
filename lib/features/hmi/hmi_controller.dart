@@ -10,6 +10,7 @@ import '../../core/serial/serial_transport.dart';
 import '../../util/log_exporter.dart';
 import 'hmi_port_config.dart';
 import 'hmi_protocol.dart';
+import 'hmi_session_frame.dart';
 import 'stack_stats.dart';
 
 class HmiLogEntry {
@@ -91,6 +92,12 @@ class _DgusWaiter {
   final Completer<_DgusFrame?> completer = Completer<_DgusFrame?>();
 }
 
+class _SessionWaiter {
+  _SessionWaiter(this.matcher);
+  final bool Function(HmiSessionFrame frame) matcher;
+  final Completer<HmiSessionFrame?> completer = Completer<HmiSessionFrame?>();
+}
+
 /// 单个串口通道的状态与处理逻辑。
 class _PortChannel {
   _PortChannel(
@@ -98,15 +105,19 @@ class _PortChannel {
     this.configRef, {
     required this.acceptsPackerFrames,
     required this.acceptsDgusFrames,
+    required this.acceptsSessionFrames,
   });
 
   final SerialTransport transport;
   final List<int> rxBuffer = <int>[];
   final List<int> dgusRxBuffer = <int>[];
+  final HmiSessionFrameDecoder sessionDecoder = HmiSessionFrameDecoder();
   final List<_DgusWaiter> dgusWaiters = <_DgusWaiter>[];
+  final List<_SessionWaiter> sessionWaiters = <_SessionWaiter>[];
   StreamSubscription<Uint8List>? subscription;
   final bool acceptsPackerFrames;
   final bool acceptsDgusFrames;
+  final bool acceptsSessionFrames;
 
   /// 指向外部可变的 HmiPortConfig 引用，以便读取最新配置。
   final HmiPortConfig Function() configRef;
@@ -127,9 +138,15 @@ class _PortChannel {
         w.completer.complete(null);
       }
     }
+    for (final w in sessionWaiters) {
+      if (!w.completer.isCompleted) {
+        w.completer.complete(null);
+      }
+    }
     rxBuffer.clear();
     dgusRxBuffer.clear();
     dgusWaiters.clear();
+    sessionWaiters.clear();
   }
 }
 
@@ -144,20 +161,22 @@ class HmiController extends ChangeNotifier {
       _portAConfig = HmiPortConfig(baudRate: 9600, label: '端口 A（主控协议）'),
       _portBConfig = HmiPortConfig(
         baudRate: 9600,
-        crcAlgorithm: CrcAlgorithm.dgus,
-        label: '端口 B（DGUS参数+日志）',
+        crcAlgorithm: CrcAlgorithm.modbus,
+        label: '端口 B（USART1会话）',
       ) {
     _channelA = _PortChannel(
       _transportA,
       () => _portAConfig,
       acceptsPackerFrames: true,
       acceptsDgusFrames: false,
+      acceptsSessionFrames: false,
     );
     _channelB = _PortChannel(
       _transportB,
       () => _portBConfig,
       acceptsPackerFrames: false,
-      acceptsDgusFrames: true,
+      acceptsDgusFrames: false,
+      acceptsSessionFrames: true,
     );
     _subscriptionA = _transportA.incomingBytes.listen(
       (bytes) => _onIncomingBytes(bytes, _channelA),
@@ -205,6 +224,7 @@ class HmiController extends ChangeNotifier {
 
   List<String> _portsA = <String>[];
   List<String> _portsB = <String>[];
+  int _sessionSeq = 1;
 
   // ────────────── 端口访问器 ──────────────
 
@@ -394,6 +414,12 @@ class HmiController extends ChangeNotifier {
       }
     }
     channel.dgusWaiters.clear();
+    for (final w in channel.sessionWaiters) {
+      if (!w.completer.isCompleted) {
+        w.completer.complete(null);
+      }
+    }
+    channel.sessionWaiters.clear();
   }
 
   /// 向后兼容：连接/断开端口 A。
@@ -671,31 +697,17 @@ class HmiController extends ChangeNotifier {
     required int paramId,
     bool? usePortB,
   }) async {
-    final dgusAddr = 0x2000 + ((paramId - 0x10) * 2);
-    final resp = await _runDgusCommand(
-      tx: <int>[
-        0x5A,
-        0xA5,
-        0x04,
-        0x83,
-        (dgusAddr >> 8) & 0xFF,
-        dgusAddr & 0xFF,
-        0x02,
-      ],
-      matcher: (f) =>
-          f.command == 0x83 &&
-          f.data.length >= 7 &&
-          f.data[0] == ((dgusAddr >> 8) & 0xFF) &&
-          f.data[1] == (dgusAddr & 0xFF) &&
-          f.data[2] == 0x02,
-      label: 'DGUS读取',
-      usePortB: usePortB,
+    final resp = await _runSessionCommand(
+      command: HmiSessionCommand.getParamValuesBatch,
+      payload: <int>[1, paramId & 0xFF],
+      label: '参数读取',
     );
     if (resp == null) return null;
-    return (resp.data[3] << 24) |
-        (resp.data[4] << 16) |
-        (resp.data[5] << 8) |
-        resp.data[6];
+    if (resp.payload.length < 7 || resp.payload[0] == 0) return null;
+    return resp.payload[3] |
+        (resp.payload[4] << 8) |
+        (resp.payload[5] << 16) |
+        (resp.payload[6] << 24);
   }
 
   /// 写入单个运行时参数 (仅 RAM, 不自动保存)。
@@ -705,47 +717,32 @@ class HmiController extends ChangeNotifier {
     required int value,
     bool? usePortB,
   }) async {
-    final dgusAddr = 0x2000 + ((paramId - 0x10) * 2);
-    final w0 = (value >> 16) & 0xFFFF;
-    final w1 = value & 0xFFFF;
-    final resp = await _runDgusCommand(
-      tx: <int>[
-        0x5A,
-        0xA5,
-        0x07,
-        0x82,
-        (dgusAddr >> 8) & 0xFF,
-        dgusAddr & 0xFF,
-        (w0 >> 8) & 0xFF,
-        w0 & 0xFF,
-        (w1 >> 8) & 0xFF,
-        w1 & 0xFF,
+    final resp = await _runSessionCommand(
+      command: HmiSessionCommand.setParamValuesBatch,
+      payload: <int>[
+        1,
+        paramId & 0xFF,
+        0,
+        value & 0xFF,
+        (value >> 8) & 0xFF,
+        (value >> 16) & 0xFF,
+        (value >> 24) & 0xFF,
       ],
-      matcher: (f) =>
-          f.command == 0x82 &&
-          f.data.length >= 2 &&
-          f.data[0] == 0x4F &&
-          f.data[1] == 0x4B,
-      label: 'DGUS写入',
-      usePortB: usePortB,
+      label: '参数写入',
     );
-    if (resp == null) return null;
+    if (resp == null || resp.payload.isEmpty || resp.payload.last != 0) {
+      return null;
+    }
     return value;
   }
 
   /// 保存当前运行时参数到 EEPROM。
   Future<bool> sendParamSave({required int nodeAddress, bool? usePortB}) async {
-    final resp = await _runDgusCommand(
-      tx: const <int>[0x5A, 0xA5, 0x05, 0x82, 0x40, 0x00, 0x00, 0x01],
-      matcher: (f) =>
-          f.command == 0x82 &&
-          f.data.length >= 2 &&
-          f.data[0] == 0x4F &&
-          f.data[1] == 0x4B,
-      label: 'DGUS保存',
-      usePortB: usePortB,
+    final resp = await _runSessionCommand(
+      command: HmiSessionCommand.saveParams,
+      label: '参数保存',
     );
-    return resp != null;
+    return resp != null && resp.payload.isNotEmpty && resp.payload[0] == 0;
   }
 
   Future<bool> sendParamLoad({
@@ -753,57 +750,34 @@ class HmiController extends ChangeNotifier {
     required int action,
     bool? usePortB,
   }) async {
-    final addr = (action == 0) ? 0x4001 : 0x4002;
-    final resp = await _runDgusCommand(
-      tx: <int>[
-        0x5A,
-        0xA5,
-        0x05,
-        0x82,
-        (addr >> 8) & 0xFF,
-        addr & 0xFF,
-        0x00,
-        0x01,
-      ],
-      matcher: (f) =>
-          f.command == 0x82 &&
-          f.data.length >= 2 &&
-          f.data[0] == 0x4F &&
-          f.data[1] == 0x4B,
-      label: (action == 0) ? 'DGUS加载EEPROM' : 'DGUS恢复默认',
-      usePortB: usePortB,
+    final resp = await _runSessionCommand(
+      command: (action == 0)
+          ? HmiSessionCommand.loadParams
+          : HmiSessionCommand.loadDefaults,
+      label: (action == 0) ? '加载EEPROM' : '恢复默认',
     );
-    return resp != null;
+    return resp != null && resp.payload.isNotEmpty && resp.payload[0] == 0;
   }
 
-  /// 读取 DGUS 系统信息区 (VP 0x1000~0x1003)。
-  ///
-  /// 返回 4 个 uint16_t 值: [state, running, bootDone, alarmCode]。
-  /// 当门禁锁定（机器运行中）时返回 null。
+  /// 读取 USART1 Session 聚合系统信息。
   Future<List<int>?> sendDgusSystemInfo({
     required int nodeAddress,
     bool? usePortB,
   }) async {
-    final resp = await _runDgusCommand(
-      tx: const <int>[0x5A, 0xA5, 0x04, 0x83, 0x10, 0x00, 0x04],
-      matcher: (f) =>
-          f.command == 0x83 &&
-          f.data.length >= 11 &&
-          f.data[0] == 0x10 &&
-          f.data[1] == 0x00 &&
-          f.data[2] == 0x04,
-      label: 'DGUS系统信息',
-      usePortB: usePortB,
+    final resp = await _runSessionCommand(
+      command: HmiSessionCommand.getDeviceStatus,
+      label: 'Session系统信息',
     );
-    if (resp == null) return null;
+    if (resp == null || resp.payload.length < 12) return null;
     return <int>[
-      (resp.data[3] << 8) | resp.data[4], // 0x1000: state
-      (resp.data[5] << 8) | resp.data[6], // 0x1001: running
-      (resp.data[7] << 8) | resp.data[8], // 0x1002: boot_done
-      (resp.data[9] << 8) | resp.data[10], // 0x1003: alarm
+      resp.payload[1],
+      resp.payload[2],
+      resp.payload[8] == 0 ? 1 : 0,
+      resp.payload[10],
     ];
   }
 
+  // ignore: unused_element
   Future<_DgusFrame?> _runDgusCommand({
     required List<int> tx,
     required bool Function(_DgusFrame frame) matcher,
@@ -843,6 +817,63 @@ class HmiController extends ChangeNotifier {
       return frame;
     } catch (e) {
       channel.dgusWaiters.remove(waiter);
+      _statusMessage = '$label失败';
+      notifyListeners();
+      return null;
+    }
+  }
+
+  Future<HmiSessionFrame?> _runSessionCommand({
+    required HmiSessionCommand command,
+    List<int> payload = const <int>[],
+    required String label,
+  }) async {
+    final channel = _channelB;
+    final transport = channel.transport;
+    if (!transport.isConnected) {
+      _statusMessage = '$label失败: USART1未连接';
+      notifyListeners();
+      return null;
+    }
+
+    final seq = _sessionSeq;
+    _sessionSeq = (_sessionSeq + 1) & 0xFFFF;
+    if (_sessionSeq == 0) _sessionSeq = 1;
+
+    final frame = HmiSessionFrame(
+      type: HmiSessionFrameType.request,
+      sequence: seq,
+      command: command,
+      flags: HmiSessionFlags.ackRequired,
+      payload: Uint8List.fromList(payload),
+    );
+    final waiter = _SessionWaiter(
+      (f) =>
+          f.sequence == seq &&
+          f.command == command &&
+          f.type == HmiSessionFrameType.response,
+    );
+    channel.sessionWaiters.add(waiter);
+
+    try {
+      final encoded = frame.encode();
+      await transport.write(encoded);
+      _appendSessionTx(frame, channel.config.label);
+      final response = await waiter.completer.future.timeout(
+        Duration(milliseconds: _retryPolicy.timeoutMs),
+        onTimeout: () => null,
+      );
+      channel.sessionWaiters.remove(waiter);
+      if (response == null) {
+        _statusMessage = '$label超时（${_retryPolicy.timeoutMs}ms）';
+        notifyListeners();
+        return null;
+      }
+      _statusMessage = '$label成功';
+      notifyListeners();
+      return response;
+    } catch (_) {
+      channel.sessionWaiters.remove(waiter);
       _statusMessage = '$label失败';
       notifyListeners();
       return null;
@@ -924,6 +955,7 @@ class HmiController extends ChangeNotifier {
   void _onIncomingBytes(Uint8List bytes, _PortChannel channel) {
     var hasFrameUpdate = false;
     var hasDgusLogUpdate = false;
+    var hasSessionUpdate = false;
 
     if (channel.acceptsPackerFrames) {
       channel.rxBuffer.addAll(bytes);
@@ -934,9 +966,26 @@ class HmiController extends ChangeNotifier {
       hasDgusLogUpdate = _consumeDgusFrames(bytes, channel);
     }
 
-    if (hasFrameUpdate || hasDgusLogUpdate) {
+    if (channel.acceptsSessionFrames) {
+      hasSessionUpdate = _consumeSessionFrames(bytes, channel);
+    }
+
+    if (hasFrameUpdate || hasDgusLogUpdate || hasSessionUpdate) {
       notifyListeners();
     }
+  }
+
+  bool _consumeSessionFrames(Uint8List bytes, _PortChannel channel) {
+    var changed = false;
+    for (final byte in bytes) {
+      final frame = channel.sessionDecoder.push(byte);
+      if (frame == null) {
+        continue;
+      }
+      changed = true;
+      _appendSessionFrame(frame, channel.config.label);
+    }
+    return changed;
   }
 
   bool _consumeDgusFrames(Uint8List bytes, _PortChannel channel) {
@@ -1036,6 +1085,85 @@ class HmiController extends ChangeNotifier {
     final index = channel.dgusWaiters.indexWhere((w) => w.matcher(frame));
     if (index < 0) return;
     final waiter = channel.dgusWaiters.removeAt(index);
+    if (!waiter.completer.isCompleted) {
+      waiter.completer.complete(frame);
+    }
+  }
+
+  void _appendSessionFrame(HmiSessionFrame frame, String portLabel) {
+    final raw = frame.rawHex;
+    final textPayload = String.fromCharCodes(
+      frame.payload.where((byte) => byte >= 0x20 && byte <= 0x7E),
+    );
+
+    if (frame.type == HmiSessionFrameType.log) {
+      final logText = frame.payload.isNotEmpty
+          ? String.fromCharCodes(frame.payload.skip(1))
+          : textPayload;
+      _appendDgusLog(logText.isEmpty ? raw : logText, portLabel);
+      return;
+    }
+
+    _dispatchSessionWaiters(_channelB, frame);
+
+    final placeholder = HmiFrame(
+      address: HmiSessionFrame.sof0,
+      function: frame.command.value,
+      data: <int>[
+        frame.type.value,
+        frame.sequence & 0xFF,
+        (frame.sequence >> 8) & 0xFF,
+        frame.flags,
+        ...frame.payload.take(12),
+      ],
+    );
+    final entry = HmiLogEntry(
+      direction: frame.type == HmiSessionFrameType.response ? 'RX' : 'EVENT',
+      frame: placeholder,
+      timestamp: DateTime.now(),
+      decoded: HmiDecodedFrame(
+        title: 'USART1会话 CMD=0x${toHex2(frame.command.value)}',
+        summary: textPayload.isEmpty ? raw : textPayload,
+        rawDataHex: raw,
+      ),
+      portLabel: portLabel,
+    );
+    _logs.insert(0, entry);
+    _trimInMemoryLogsIfNeeded();
+    _enqueueLogLineForDisk(_toJsonLine(entry));
+  }
+
+  void _appendSessionTx(HmiSessionFrame frame, String portLabel) {
+    final entry = HmiLogEntry(
+      direction: 'TX',
+      frame: HmiFrame(
+        address: HmiSessionFrame.sof0,
+        function: frame.command.value,
+        data: <int>[
+          frame.type.value,
+          frame.sequence & 0xFF,
+          (frame.sequence >> 8) & 0xFF,
+          frame.flags,
+          ...frame.payload.take(12),
+        ],
+      ),
+      timestamp: DateTime.now(),
+      decoded: HmiDecodedFrame(
+        title: 'USART1会话 TX CMD=0x${toHex2(frame.command.value)}',
+        summary: frame.rawHex,
+        rawDataHex: frame.rawHex,
+      ),
+      portLabel: portLabel,
+    );
+    _logs.insert(0, entry);
+    _trimInMemoryLogsIfNeeded();
+    _enqueueLogLineForDisk(_toJsonLine(entry));
+  }
+
+  void _dispatchSessionWaiters(_PortChannel channel, HmiSessionFrame frame) {
+    final index = channel.sessionWaiters.indexWhere((w) => w.matcher(frame));
+    if (index < 0) return;
+    final waiter = channel.sessionWaiters.removeAt(index);
     if (!waiter.completer.isCompleted) {
       waiter.completer.complete(frame);
     }
