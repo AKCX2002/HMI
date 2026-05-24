@@ -22,6 +22,10 @@ class _FakeSerialTransport implements SerialTransport {
   Future<void> connect({
     required String portName,
     required int baudRate,
+    int dataBits = 8,
+    int stopBits = 1,
+    int parity = 0,
+    int flowControl = 0,
   }) async {}
 
   @override
