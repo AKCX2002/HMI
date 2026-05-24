@@ -1,7 +1,7 @@
 # HMI Host (Flutter)
 
 面向自动出货打包机的上位机工程。  
-本项目使用 Flutter 单代码库覆盖 `Windows / macOS / Linux / Android / iOS / Web`，并在桌面端提供串口通信能力。
+本项目使用 Flutter 单代码库覆盖 `Windows / macOS / Linux / Android / iOS / Web`，并提供桌面串口与 Android USB Host OTG 串口通信能力。
 
 ## 0. 文档导航
 
@@ -22,6 +22,9 @@
 
 - Flutter 多平台工程骨架
 - 串口连接管理（端口扫描、连接、断开、收发）
+- 串口后端分层:
+  - Android: `usb-serial-for-android` + 原生 Kotlin USB Host
+  - Windows/Linux/macOS: `flutter_libserialport`
 - 协议层:
   - 固定 20 字节帧
   - XYZ 主控地址字节 `0xAF/0xBF`
@@ -91,6 +94,8 @@ lib/
       hmi_frame.dart
     serial/
       serial_transport.dart
+      android_usb_serial_transport.dart
+      desktop_serial_transport.dart
       serial_transport_impl.dart
   features/
     hmi/
@@ -118,6 +123,7 @@ doc/
 
 - Web 端无法直接访问本地串口硬件，建议桌面端用于联调。
 - Android 构建提示当前 Java 版本偏高（`26.0.1`），如需 Android 构建请按 Flutter 提示切换到 Java 17~24。
+- Android OTG 串口链路依赖 `android.hardware.usb.host` 与 `usb-serial-for-android`，当前目标设备为 `CDC ACM / FTDI / CP210x / CH34x / PL2303` 一类常见 USB 串口芯片。
 
 ## 7. 开发验证
 

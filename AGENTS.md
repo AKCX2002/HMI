@@ -58,7 +58,7 @@
 - Flutter 安装路径: `C:\Users\USER\Flutter`
 - 当前框架版本: `Flutter 3.41.7 / Dart 3.11.5`
 - 目标平台: `Windows/macOS/Linux/Android/iOS/Web`
-- 串口联调优先平台: 桌面端（Windows/Linux/macOS）
+- 串口联调优先平台: 桌面端（Windows/Linux/macOS）；Android 现支持 USB Host OTG 串口链路
 - WSL/WSLg 运行 Linux 桌面版时，若出现 `libEGL` / `MESA` / `ZINK` / `vkCreateInstance failed`，
   优先按“软件渲染 + X11 回退”口径处理：
   `GDK_BACKEND=x11 GSK_RENDERER=cairo LIBGL_ALWAYS_SOFTWARE=1 flutter run -d linux --enable-software-rendering`
@@ -74,6 +74,12 @@
 - `lib/core/protocol`: 协议编解码、CRC 校验
 - `lib/core/serial`: 串口抽象与平台实现
 - `lib/features/hmi`: 业务控制器与界面
+
+当前串口后端口径:
+
+- Android: `Kotlin + usb-serial-for-android + MethodChannel/EventChannel`
+- Windows/Linux/macOS: `flutter_libserialport`
+- 上层 `HmiController` / 协议层 / UI 不感知平台差异
 
 规则:
 
@@ -124,6 +130,7 @@
 - XYZ 设备测试 `target_id` 按低字节在前传输: `data[1]=low`，`data[2]=high`
 - 不要在 UI 层拼接原始帧，避免维护失控
 - Android 构建可能受本机 Java 版本影响，需按 Flutter 提示处理
+- Android USB 串口不再依赖 `flutter_libserialport` 枚举设备；改为原生 USB Host 扫描/授权/收发
 - Windows 下最常见两类问题:
   - 符号链接未开启（Developer Mode）
   - 历史 CMake 缓存导致生成器平台不一致
