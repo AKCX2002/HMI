@@ -63,7 +63,7 @@ void main() {
     );
     await tester.pumpWidget(app);
 
-    expect(find.text('上位机控制台'), findsOneWidget);
+    expect(find.text('打包机'), findsOneWidget);
     expect(find.text('USART3调试'), findsOneWidget);
 
     await transportA.dispose();
