@@ -67,8 +67,19 @@ void main() {
     expect(heaterDuty!.name, '加热占空比');
     expect(heaterDuty.unit, '‰');
     expect(heaterDuty.min, 0);
-    expect(heaterDuty.max, 100);
+    expect(heaterDuty.max, 200);
     expect(heaterDuty.dgusAddr, 0x2082);
+  });
+
+  test('拉断长度参数映射为 0x4F 且默认沿用 40.000mm 口径', () async {
+    final tearOffLen = findParamDef(0x4F);
+
+    expect(tearOffLen, isNotNull);
+    expect(tearOffLen!.name, '拉断长度');
+    expect(tearOffLen.unit, '0.001mm');
+    expect(tearOffLen.min, 1000);
+    expect(tearOffLen.max, 1000000);
+    expect(tearOffLen.dgusAddr, 0x207E);
   });
 
   test('出袋轴频率与拉断回拉频率允许 0 作为自动换算哨兵值', () async {
