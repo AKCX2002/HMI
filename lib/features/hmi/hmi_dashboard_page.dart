@@ -2511,17 +2511,15 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
 
     return Container(
       color: const Color(0xFF08152A),
-      child: Expanded(
-        child: ListView(
-          padding: const EdgeInsets.all(12),
-          children: <Widget>[
-            for (final group in params.entries) ...[
-              _buildParamGroup(
-                  controller, group.key, group.value),
-              const SizedBox(height: 8),
-            ],
+      child: ListView(
+        padding: const EdgeInsets.all(12),
+        children: <Widget>[
+          for (final group in params.entries) ...[
+            _buildParamGroup(
+                controller, group.key, group.value),
+            const SizedBox(height: 8),
           ],
-        ),
+        ],
       ),
     );
   }
