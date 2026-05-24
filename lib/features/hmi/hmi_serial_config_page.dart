@@ -1,0 +1,485 @@
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+import '../../core/protocol/crc_algorithm.dart';
+import 'hmi_controller.dart';
+import 'hmi_port_config.dart';
+
+/// USART 串口配置子页面。
+///
+/// 集中管理端口 A (USART3) 和端口 B (USART1) 的全部串口参数：
+/// - 端口名称、波特率、数据位、停止位、校验位、流控制、CRC 算法
+/// - 连接/断开、扫描刷新
+class HmiSerialConfigPage extends StatefulWidget {
+  const HmiSerialConfigPage({super.key, required this.controller});
+
+  final HmiController controller;
+
+  @override
+  State<HmiSerialConfigPage> createState() => _HmiSerialConfigPageState();
+}
+
+class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
+  static const List<int> _kBaudRates = <int>[
+    1200, 2400, 4800, 9600, 14400, 19200, 38400, 57600, 115200, 230400,
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.controller;
+    return AnimatedBuilder(
+      animation: c,
+      builder: (_, _) {
+        return Container(
+          color: const Color(0xFF08152A),
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: <Widget>[
+              _buildSectionTitle('端口 A — USART3 / 20B 固定帧 (主控协议)'),
+              const SizedBox(height: 10),
+              _buildPortConfigCard(
+                config: c.portAConfig,
+                isConnected: c.isConnectedA,
+                ports: c.portsA,
+                canEdit: !c.isConnectedA,
+                onPortChanged: c.setPortA,
+                onBaudRateChanged: c.setBaudRateA,
+                onDataBitsChanged: c.setDataBitsA,
+                onStopBitsChanged: c.setStopBitsA,
+                onParityChanged: c.setParityA,
+                onFlowControlChanged: c.setFlowControlA,
+                onCrcChanged: c.setCrcAlgorithmA,
+                onRefresh: c.refreshPortsA,
+                onConnect: c.connectPortA,
+                onDisconnect: c.disconnectPortA,
+              ),
+              const SizedBox(height: 24),
+              _buildSectionTitle('端口 B — USART1 / HMI Session (DGUS 日志/参数)'),
+              const SizedBox(height: 10),
+              _buildPortConfigCard(
+                config: c.portBConfig,
+                isConnected: c.isConnectedB,
+                ports: c.portsB,
+                canEdit: !c.isConnectedB,
+                onPortChanged: c.setPortB,
+                onBaudRateChanged: c.setBaudRateB,
+                onDataBitsChanged: c.setDataBitsB,
+                onStopBitsChanged: c.setStopBitsB,
+                onParityChanged: c.setParityB,
+                onFlowControlChanged: c.setFlowControlB,
+                onCrcChanged: c.setCrcAlgorithmB,
+                onRefresh: c.refreshPortsB,
+                onConnect: c.connectPortB,
+                onDisconnect: c.disconnectPortB,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSectionTitle(String title) {
+    return Text(
+      title,
+      style: GoogleFonts.ibmPlexSans(
+        color: const Color(0xFFA6C5EA),
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.5,
+      ),
+    );
+  }
+
+  /// 单个端口的完整配置卡片。
+  Widget _buildPortConfigCard({
+    required HmiPortConfig config,
+    required bool isConnected,
+    required List<String> ports,
+    required bool canEdit,
+    required ValueChanged<String?> onPortChanged,
+    required ValueChanged<int> onBaudRateChanged,
+    required ValueChanged<HmiDataBits> onDataBitsChanged,
+    required ValueChanged<HmiStopBits> onStopBitsChanged,
+    required ValueChanged<HmiParity> onParityChanged,
+    required ValueChanged<HmiFlowControl> onFlowControlChanged,
+    required ValueChanged<CrcAlgorithm> onCrcChanged,
+    required VoidCallback onRefresh,
+    required VoidCallback onConnect,
+    required VoidCallback onDisconnect,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0D1A30),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isConnected ? const Color(0xFF2E7D32) : const Color(0xFF233A62),
+        ),
+      ),
+      child: LayoutBuilder(
+        builder: (_, constraints) {
+          final compact = constraints.maxWidth < 640;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              // ── 状态栏 ──
+              _buildStatusBar(isConnected, config, onRefresh, onConnect, onDisconnect),
+              const SizedBox(height: 12),
+              const Divider(color: Color(0xFF213D65), height: 1),
+              const SizedBox(height: 12),
+              // ── 参数区 ──
+              Text(
+                '串口参数',
+                style: GoogleFonts.ibmPlexSans(
+                  color: const Color(0xFF7DB5FF),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (compact) ..._buildCompactConfigRows(
+                config, ports, canEdit, onPortChanged, onBaudRateChanged,
+                onDataBitsChanged, onStopBitsChanged, onParityChanged,
+                onFlowControlChanged, onCrcChanged,
+              ) else ..._buildWideConfigRows(
+                config, ports, canEdit, onPortChanged, onBaudRateChanged,
+                onDataBitsChanged, onStopBitsChanged, onParityChanged,
+                onFlowControlChanged, onCrcChanged,
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildStatusBar(
+    bool isConnected,
+    HmiPortConfig config,
+    VoidCallback onRefresh,
+    VoidCallback onConnect,
+    VoidCallback onDisconnect,
+  ) {
+    return Row(
+      children: <Widget>[
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: isConnected ? const Color(0xFF4CAF50) : const Color(0xFFE53935),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            isConnected
+                ? '已连接 — ${config.summary}'
+                : '未连接 — ${config.portName ?? "未选择端口"}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.ibmPlexMono(
+              color: isConnected ? const Color(0xFF9AF9D3) : const Color(0xFFFF9595),
+              fontSize: 11,
+            ),
+          ),
+        ),
+        Tooltip(
+          message: '扫描可用串口',
+          child: SizedBox(
+            height: 32,
+            width: 40,
+            child: ElevatedButton(
+              style: _btnStyle(const Color(0xFF1B91D8)),
+              onPressed: onRefresh,
+              child: const Icon(Icons.refresh, size: 16),
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Tooltip(
+          message: isConnected ? '断开连接' : '连接串口',
+          child: SizedBox(
+            height: 32,
+            width: 40,
+            child: ElevatedButton(
+              style: _btnStyle(
+                isConnected ? const Color(0xFF9F2D2D) : const Color(0xFF2E7D32),
+              ),
+              onPressed: isConnected ? onDisconnect : onConnect,
+              child: Icon(
+                isConnected ? Icons.link_off : Icons.link,
+                size: 16,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  List<Widget> _buildWideConfigRows(
+    HmiPortConfig config,
+    List<String> ports,
+    bool canEdit,
+    ValueChanged<String?> onPortChanged,
+    ValueChanged<int> onBaudRateChanged,
+    ValueChanged<HmiDataBits> onDataBitsChanged,
+    ValueChanged<HmiStopBits> onStopBitsChanged,
+    ValueChanged<HmiParity> onParityChanged,
+    ValueChanged<HmiFlowControl> onFlowControlChanged,
+    ValueChanged<CrcAlgorithm> onCrcChanged,
+  ) {
+    return <Widget>[
+      Row(
+        children: <Widget>[
+          Expanded(flex: 4, child: _buildPortDropdown(ports, config.portName, canEdit, onPortChanged)),
+          const SizedBox(width: 8),
+          Expanded(flex: 2, child: _buildBaudDropdown(config.baudRate, canEdit, onBaudRateChanged)),
+          const SizedBox(width: 8),
+          Expanded(flex: 1, child: _buildDataBitsDropdown(config.dataBits, canEdit, onDataBitsChanged)),
+          const SizedBox(width: 8),
+          Expanded(flex: 1, child: _buildParityDropdown(config.parity, canEdit, onParityChanged)),
+          const SizedBox(width: 8),
+          Expanded(flex: 1, child: _buildStopBitsDropdown(config.stopBits, canEdit, onStopBitsChanged)),
+          const SizedBox(width: 8),
+          Expanded(flex: 2, child: _buildFlowDropdown(config.flowControl, canEdit, onFlowControlChanged)),
+        ],
+      ),
+      const SizedBox(height: 8),
+      Row(
+        children: <Widget>[
+          Expanded(flex: 2, child: _buildCrcDropdown(config.crcAlgorithm, canEdit, onCrcChanged)),
+          const SizedBox(width: 8),
+          const Spacer(flex: 8),
+        ],
+      ),
+    ];
+  }
+
+  List<Widget> _buildCompactConfigRows(
+    HmiPortConfig config,
+    List<String> ports,
+    bool canEdit,
+    ValueChanged<String?> onPortChanged,
+    ValueChanged<int> onBaudRateChanged,
+    ValueChanged<HmiDataBits> onDataBitsChanged,
+    ValueChanged<HmiStopBits> onStopBitsChanged,
+    ValueChanged<HmiParity> onParityChanged,
+    ValueChanged<HmiFlowControl> onFlowControlChanged,
+    ValueChanged<CrcAlgorithm> onCrcChanged,
+  ) {
+    return <Widget>[
+      Row(
+        children: <Widget>[
+          Expanded(child: _buildPortDropdown(ports, config.portName, canEdit, onPortChanged)),
+          const SizedBox(width: 8),
+          Expanded(child: _buildBaudDropdown(config.baudRate, canEdit, onBaudRateChanged)),
+        ],
+      ),
+      const SizedBox(height: 8),
+      Row(
+        children: <Widget>[
+          Expanded(child: _buildDataBitsDropdown(config.dataBits, canEdit, onDataBitsChanged)),
+          const SizedBox(width: 8),
+          Expanded(child: _buildParityDropdown(config.parity, canEdit, onParityChanged)),
+          const SizedBox(width: 8),
+          Expanded(child: _buildStopBitsDropdown(config.stopBits, canEdit, onStopBitsChanged)),
+        ],
+      ),
+      const SizedBox(height: 8),
+      Row(
+        children: <Widget>[
+          Expanded(child: _buildFlowDropdown(config.flowControl, canEdit, onFlowControlChanged)),
+          const SizedBox(width: 8),
+          Expanded(child: _buildCrcDropdown(config.crcAlgorithm, canEdit, onCrcChanged)),
+        ],
+      ),
+    ];
+  }
+
+  // ═══════════════════════════════════════════════
+  //  控件构建
+  // ═══════════════════════════════════════════════
+
+  Widget _buildPortDropdown(
+    List<String> ports,
+    String? selected,
+    bool canEdit,
+    ValueChanged<String?> onChanged,
+  ) {
+    return DropdownButtonFormField<String?>(
+      initialValue: selected,
+      decoration: _fieldDeco('端口'),
+      dropdownColor: const Color(0xFF122B4D),
+      style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
+      isDense: true,
+      items: <DropdownMenuItem<String?>>[
+        const DropdownMenuItem<String?>(
+          value: null,
+          child: Text('— 未选择 —', style: TextStyle(color: Color(0xFF888888), fontSize: 12)),
+        ),
+        ...ports.map(
+          (p) => DropdownMenuItem<String?>(
+            value: p,
+            child: Text(p, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
+          ),
+        ),
+      ],
+      onChanged: canEdit ? onChanged : null,
+    );
+  }
+
+  Widget _buildBaudDropdown(
+    int value,
+    bool canEdit,
+    ValueChanged<int> onChanged,
+  ) {
+    return DropdownButtonFormField<int>(
+      initialValue: value,
+      decoration: _fieldDeco('波特率'),
+      dropdownColor: const Color(0xFF122B4D),
+      style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
+      isDense: true,
+      items: _kBaudRates
+          .map((v) => DropdownMenuItem<int>(
+                value: v,
+                child: Text('$v', style: const TextStyle(fontSize: 12)),
+              ))
+          .toList(),
+      onChanged: canEdit ? (v) => onChanged(v ?? 9600) : null,
+    );
+  }
+
+  Widget _buildDataBitsDropdown(
+    HmiDataBits value,
+    bool canEdit,
+    ValueChanged<HmiDataBits> onChanged,
+  ) {
+    return DropdownButtonFormField<HmiDataBits>(
+      initialValue: value,
+      decoration: _fieldDeco('数据位'),
+      dropdownColor: const Color(0xFF122B4D),
+      style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
+      isDense: true,
+      items: HmiDataBits.values
+          .map((v) => DropdownMenuItem<HmiDataBits>(
+                value: v,
+                child: Text(v.label, style: const TextStyle(fontSize: 12)),
+              ))
+          .toList(),
+      onChanged: canEdit ? (v) => onChanged(v ?? HmiDataBits.bits8) : null,
+    );
+  }
+
+  Widget _buildStopBitsDropdown(
+    HmiStopBits value,
+    bool canEdit,
+    ValueChanged<HmiStopBits> onChanged,
+  ) {
+    return DropdownButtonFormField<HmiStopBits>(
+      initialValue: value,
+      decoration: _fieldDeco('停止位'),
+      dropdownColor: const Color(0xFF122B4D),
+      style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
+      isDense: true,
+      items: HmiStopBits.values
+          .map((v) => DropdownMenuItem<HmiStopBits>(
+                value: v,
+                child: Text(v.label, style: const TextStyle(fontSize: 12)),
+              ))
+          .toList(),
+      onChanged: canEdit ? (v) => onChanged(v ?? HmiStopBits.one) : null,
+    );
+  }
+
+  Widget _buildParityDropdown(
+    HmiParity value,
+    bool canEdit,
+    ValueChanged<HmiParity> onChanged,
+  ) {
+    return DropdownButtonFormField<HmiParity>(
+      initialValue: value,
+      decoration: _fieldDeco('校验'),
+      dropdownColor: const Color(0xFF122B4D),
+      style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
+      isDense: true,
+      items: HmiParity.values
+          .map((v) => DropdownMenuItem<HmiParity>(
+                value: v,
+                child: Text(v.label, style: const TextStyle(fontSize: 12)),
+              ))
+          .toList(),
+      onChanged: canEdit ? (v) => onChanged(v ?? HmiParity.none) : null,
+    );
+  }
+
+  Widget _buildFlowDropdown(
+    HmiFlowControl value,
+    bool canEdit,
+    ValueChanged<HmiFlowControl> onChanged,
+  ) {
+    return DropdownButtonFormField<HmiFlowControl>(
+      initialValue: value,
+      decoration: _fieldDeco('流控制'),
+      dropdownColor: const Color(0xFF122B4D),
+      style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
+      isDense: true,
+      items: HmiFlowControl.values
+          .map((v) => DropdownMenuItem<HmiFlowControl>(
+                value: v,
+                child: Text(v.label, style: const TextStyle(fontSize: 12)),
+              ))
+          .toList(),
+      onChanged: canEdit ? (v) => onChanged(v ?? HmiFlowControl.none) : null,
+    );
+  }
+
+  Widget _buildCrcDropdown(
+    CrcAlgorithm value,
+    bool canEdit,
+    ValueChanged<CrcAlgorithm> onChanged,
+  ) {
+    return DropdownButtonFormField<CrcAlgorithm>(
+      initialValue: value,
+      decoration: _fieldDeco('CRC 算法'),
+      dropdownColor: const Color(0xFF122B4D),
+      style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
+      isDense: true,
+      items: CrcAlgorithm.values
+          .map((a) => DropdownMenuItem<CrcAlgorithm>(
+                value: a,
+                child: Text(
+                  a == CrcAlgorithm.modbus ? 'CRC16-Modbus' : 'DGUS',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ))
+          .toList(),
+      onChanged: canEdit ? (v) => onChanged(v ?? CrcAlgorithm.modbus) : null,
+    );
+  }
+
+  InputDecoration _fieldDeco(String label) {
+    return InputDecoration(
+      labelText: label,
+      labelStyle: const TextStyle(color: Color(0xFFA6C5EA), fontSize: 10),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      filled: true,
+      fillColor: const Color(0xFF0A1D36),
+      border: OutlineInputBorder(
+        borderSide: const BorderSide(color: Color(0xFF2A4F79)),
+        borderRadius: BorderRadius.circular(6),
+      ),
+    );
+  }
+
+  ButtonStyle _btnStyle(Color bg) {
+    return ElevatedButton.styleFrom(
+      backgroundColor: bg,
+      foregroundColor: Colors.white,
+      padding: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+    );
+  }
+}

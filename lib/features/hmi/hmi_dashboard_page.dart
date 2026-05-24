@@ -9,6 +9,7 @@ import '../../util/log_exporter.dart';
 import 'hmi_controller.dart';
 import 'hmi_param_config.dart';
 import 'hmi_protocol.dart';
+import 'hmi_serial_config_page.dart';
 import 'stack_stats.dart';
 
 /// HMI 主操作界面。
@@ -215,7 +216,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   }
 
   Widget _buildCompactMenuBar() {
-    final menus = <String>['USART3调试', 'USART1会话', '帧调试台', '协议日志', '栈水位统计'];
+    final menus = <String>['串口配置', 'USART3调试', 'USART1会话', '帧调试台', '协议日志', '栈水位统计'];
     return Container(
       height: 48,
       decoration: const BoxDecoration(
@@ -289,6 +290,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
 
   Widget _buildSidebar(HmiController controller) {
     final menus = <(IconData, String)>[
+      (Icons.settings_ethernet, '串口配置'),
       (Icons.satellite_alt, 'USART3调试'),
       (Icons.developer_mode, 'USART1会话'),
       (Icons.memory, '帧调试台'),
@@ -528,15 +530,18 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
 
   Widget _buildWorkArea(HmiController controller) {
     switch (_menuIndex) {
-      case 1:
-        return _buildUsart1SessionPage(controller);
-      case 2:
-        return _buildFrameDebuggerPage(controller);
-      case 3:
-        return _buildLogsPage(controller);
-      case 4:
-        return _buildStackLevelPage(controller);
       case 0:
+        return HmiSerialConfigPage(controller: controller);
+      case 1:
+        return _buildUsart3DebugPage(controller);
+      case 2:
+        return _buildUsart1SessionPage(controller);
+      case 3:
+        return _buildFrameDebuggerPage(controller);
+      case 4:
+        return _buildLogsPage(controller);
+      case 5:
+        return _buildStackLevelPage(controller);
       default:
         return _buildUsart3DebugPage(controller);
     }

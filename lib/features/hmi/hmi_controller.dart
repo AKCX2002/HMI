@@ -274,6 +274,26 @@ class HmiController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setDataBitsA(HmiDataBits value) {
+    _portAConfig = _portAConfig.copyWith(dataBits: value);
+    notifyListeners();
+  }
+
+  void setStopBitsA(HmiStopBits value) {
+    _portAConfig = _portAConfig.copyWith(stopBits: value);
+    notifyListeners();
+  }
+
+  void setParityA(HmiParity value) {
+    _portAConfig = _portAConfig.copyWith(parity: value);
+    notifyListeners();
+  }
+
+  void setFlowControlA(HmiFlowControl value) {
+    _portAConfig = _portAConfig.copyWith(flowControl: value);
+    notifyListeners();
+  }
+
   // ────────────── 端口 B 配置 ──────────────
 
   void setPortB(String? value) {
@@ -289,6 +309,26 @@ class HmiController extends ChangeNotifier {
   void setCrcAlgorithmB(CrcAlgorithm algo) {
     _portBConfig = _portBConfig.copyWith(crcAlgorithm: algo);
     _statusMessage = '端口 B CRC 算法: ${algo.displayName}';
+    notifyListeners();
+  }
+
+  void setDataBitsB(HmiDataBits value) {
+    _portBConfig = _portBConfig.copyWith(dataBits: value);
+    notifyListeners();
+  }
+
+  void setStopBitsB(HmiStopBits value) {
+    _portBConfig = _portBConfig.copyWith(stopBits: value);
+    notifyListeners();
+  }
+
+  void setParityB(HmiParity value) {
+    _portBConfig = _portBConfig.copyWith(parity: value);
+    notifyListeners();
+  }
+
+  void setFlowControlB(HmiFlowControl value) {
+    _portBConfig = _portBConfig.copyWith(flowControl: value);
     notifyListeners();
   }
 
@@ -350,8 +390,13 @@ class HmiController extends ChangeNotifier {
       await _transportA.connect(
         portName: port,
         baudRate: _portAConfig.baudRate,
+        dataBits: _portAConfig.dataBits.value,
+        stopBits: _portAConfig.stopBits.value,
+        parity: _portAConfig.parity.value,
+        flowControl: _portAConfig.flowControl.value,
       );
-      _statusMessage = '端口 A 已连接: $port @ ${_portAConfig.baudRate}';
+      _statusMessage = '端口 A 已连接: $port @ ${_portAConfig.baudRate}'
+          ' ${_portAConfig.dataBits.label}${_portAConfig.parity.shortLabel}${_portAConfig.stopBits.label}';
       notifyListeners();
     } catch (error) {
       _statusMessage = '端口 A 连接失败: $error';
@@ -375,8 +420,13 @@ class HmiController extends ChangeNotifier {
       await _transportB.connect(
         portName: port,
         baudRate: _portBConfig.baudRate,
+        dataBits: _portBConfig.dataBits.value,
+        stopBits: _portBConfig.stopBits.value,
+        parity: _portBConfig.parity.value,
+        flowControl: _portBConfig.flowControl.value,
       );
-      _statusMessage = '端口 B 已连接: $port @ ${_portBConfig.baudRate}';
+      _statusMessage = '端口 B 已连接: $port @ ${_portBConfig.baudRate}'
+          ' ${_portBConfig.dataBits.label}${_portBConfig.parity.shortLabel}${_portBConfig.stopBits.label}';
       notifyListeners();
     } catch (error) {
       _statusMessage = '端口 B 连接失败: $error';
@@ -1391,7 +1441,14 @@ class SerialTransportDummy implements SerialTransport {
   Future<List<String>> availablePorts() async => <String>[];
 
   @override
-  Future<void> connect({String? portName, int baudRate = 115200}) async {
+  Future<void> connect({
+    required String portName,
+    required int baudRate,
+    int dataBits = 8,
+    int stopBits = 1,
+    int parity = 0,
+    int flowControl = 0,
+  }) async {
     throw StateError('未提供串口 B 实现');
   }
 

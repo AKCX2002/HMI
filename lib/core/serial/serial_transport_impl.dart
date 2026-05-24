@@ -34,6 +34,10 @@ class SerialTransportImpl implements SerialTransport {
   Future<void> connect({
     required String portName,
     required int baudRate,
+    int dataBits = 8,
+    int stopBits = 1,
+    int parity = 0,
+    int flowControl = 0,
   }) async {
     await disconnect();
 
@@ -52,10 +56,10 @@ class SerialTransportImpl implements SerialTransport {
 
       final config = SerialPortConfig();
       config.baudRate = baudRate;
-      config.bits = 8;
-      config.stopBits = 1;
-      config.parity = SerialPortParity.none;
-      config.setFlowControl(SerialPortFlowControl.none);
+      config.bits = dataBits;
+      config.stopBits = stopBits;
+      config.parity = parity;
+      config.setFlowControl(flowControl);
       port.config = config;
 
       _reader = SerialPortReader(port);

@@ -8,7 +8,21 @@ abstract class SerialTransport {
   Future<List<String>> availablePorts();
 
   /// 以指定参数打开串口。
-  Future<void> connect({required String portName, required int baudRate});
+  ///
+  /// [portName] 串口设备名 (如 `/dev/ttyUSB0`, `COM3`)。
+  /// [baudRate] 波特率。
+  /// [dataBits] 数据位，默认 8。
+  /// [stopBits] 停止位，默认 1 (取值 1/3/2，其中 3 表示 1.5)。
+  /// [parity] 校验位，默认 0 (无校验)。
+  /// [flowControl] 流控制，默认 0 (无)。
+  Future<void> connect({
+    required String portName,
+    required int baudRate,
+    int dataBits = 8,
+    int stopBits = 1,
+    int parity = 0,
+    int flowControl = 0,
+  });
 
   /// 关闭当前串口连接。
   Future<void> disconnect();
