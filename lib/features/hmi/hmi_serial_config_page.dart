@@ -119,7 +119,8 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
       ),
       child: LayoutBuilder(
         builder: (_, constraints) {
-          final compact = constraints.maxWidth < 640;
+          // 配置项较多，桌面测试默认视口也可能不足以容纳单行布局。
+          final compact = constraints.maxWidth < 1100;
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
@@ -311,6 +312,7 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
   ) {
     return DropdownButtonFormField<String?>(
       initialValue: selected,
+      isExpanded: true,
       decoration: _fieldDeco('端口'),
       dropdownColor: const Color(0xFF122B4D),
       style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
@@ -338,6 +340,7 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
   ) {
     return DropdownButtonFormField<int>(
       initialValue: value,
+      isExpanded: true,
       decoration: _fieldDeco('波特率'),
       dropdownColor: const Color(0xFF122B4D),
       style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
@@ -359,6 +362,7 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
   ) {
     return DropdownButtonFormField<HmiDataBits>(
       initialValue: value,
+      isExpanded: true,
       decoration: _fieldDeco('数据位'),
       dropdownColor: const Color(0xFF122B4D),
       style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
@@ -380,6 +384,7 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
   ) {
     return DropdownButtonFormField<HmiStopBits>(
       initialValue: value,
+      isExpanded: true,
       decoration: _fieldDeco('停止位'),
       dropdownColor: const Color(0xFF122B4D),
       style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
@@ -401,6 +406,7 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
   ) {
     return DropdownButtonFormField<HmiParity>(
       initialValue: value,
+      isExpanded: true,
       decoration: _fieldDeco('校验'),
       dropdownColor: const Color(0xFF122B4D),
       style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
@@ -422,6 +428,7 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
   ) {
     return DropdownButtonFormField<HmiFlowControl>(
       initialValue: value,
+      isExpanded: true,
       decoration: _fieldDeco('流控制'),
       dropdownColor: const Color(0xFF122B4D),
       style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
@@ -443,6 +450,7 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
   ) {
     return DropdownButtonFormField<CrcAlgorithm>(
       initialValue: value,
+      isExpanded: true,
       decoration: _fieldDeco('CRC 算法'),
       dropdownColor: const Color(0xFF122B4D),
       style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
