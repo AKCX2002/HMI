@@ -10,6 +10,7 @@ import '../../core/serial/serial_transport.dart';
 import '../../util/log_exporter.dart';
 import 'hmi_port_config.dart';
 import 'hmi_protocol.dart';
+import 'hmi_session_catalog.dart';
 import 'hmi_session_frame.dart';
 import 'stack_stats.dart';
 
@@ -77,6 +78,36 @@ class HmiLogBundleManifest {
   final String? rollingLogPath;
   final String? rollingStackLogPath;
 }
+
+enum HmiSessionClientState {
+  disconnected,
+  hello,
+  deviceInfo,
+  directoryReady,
+  valuesReady,
+  subscribed,
+  degraded,
+}
+
+class HmiSessionEventEntry {
+  const HmiSessionEventEntry({
+    required this.timestamp,
+    required this.code,
+    required this.value0,
+    required this.value1,
+    required this.summary,
+  });
+
+  final DateTime timestamp;
+  final int code;
+  final int value0;
+  final int value1;
+  final String summary;
+}
+
+const int hmiStreamMaskEvents = 0x01;
+const int hmiStreamMaskLogs = 0x02;
+const int hmiStreamMaskStack = 0x04;
 
 class _DgusFrame {
   _DgusFrame({required this.command, required this.data});
@@ -225,6 +256,13 @@ class HmiController extends ChangeNotifier {
   List<String> _portsA = <String>[];
   List<String> _portsB = <String>[];
   int _sessionSeq = 1;
+  HmiSessionClientState _sessionState = HmiSessionClientState.disconnected;
+  bool _sessionSyncInProgress = false;
+  int _sessionSubscriptionMask = 0;
+  final List<HmiSessionGroupDef> _sessionGroups = <HmiSessionGroupDef>[];
+  final List<HmiSessionParamDef> _sessionParams = <HmiSessionParamDef>[];
+  final Map<int, int> _sessionParamValues = <int, int>{};
+  final List<HmiSessionEventEntry> _sessionEvents = <HmiSessionEventEntry>[];
 
   // ────────────── 端口访问器 ──────────────
 
@@ -245,6 +283,17 @@ class HmiController extends ChangeNotifier {
 
   String? get statusMessage => _statusMessage;
   HmiRetryPolicy get retryPolicy => _retryPolicy;
+  HmiSessionClientState get sessionState => _sessionState;
+  bool get sessionSyncInProgress => _sessionSyncInProgress;
+  int get sessionSubscriptionMask => _sessionSubscriptionMask;
+  List<HmiSessionGroupDef> get sessionGroups =>
+      List<HmiSessionGroupDef>.unmodifiable(_sessionGroups);
+  List<HmiSessionParamDef> get sessionParams =>
+      List<HmiSessionParamDef>.unmodifiable(_sessionParams);
+  Map<int, int> get sessionParamValues =>
+      Map<int, int>.unmodifiable(_sessionParamValues);
+  List<HmiSessionEventEntry> get sessionEvents =>
+      List<HmiSessionEventEntry>.unmodifiable(_sessionEvents);
   List<HmiLogEntry> get logs => List<HmiLogEntry>.unmodifiable(_logs);
   List<StackLevelSample> get stackLevelSamples =>
       List<StackLevelSample>.unmodifiable(_stackLevelSamples);
@@ -255,6 +304,30 @@ class HmiController extends ChangeNotifier {
   Map<String, StackTaskStats> get stackTaskStats =>
       Map<String, StackTaskStats>.unmodifiable(_stackTaskStats);
   StackSnapshot? get latestStackSnapshot => _latestStackSnapshot;
+
+  Map<HmiSessionGroupDef, List<HmiSessionParamDef>> get sessionCatalogByGroup {
+    final groupsById = <int, HmiSessionGroupDef>{
+      for (final group in _sessionGroups) group.groupId: group,
+    };
+    final Map<HmiSessionGroupDef, List<HmiSessionParamDef>> ordered =
+        <HmiSessionGroupDef, List<HmiSessionParamDef>>{};
+    final groups = List<HmiSessionGroupDef>.from(_sessionGroups)
+      ..sort((a, b) => a.order.compareTo(b.order));
+    for (final group in groups) {
+      ordered[group] = <HmiSessionParamDef>[];
+    }
+    for (final param in _sessionParams) {
+      final group = groupsById[param.groupId];
+      if (group == null) {
+        continue;
+      }
+      ordered.putIfAbsent(group, () => <HmiSessionParamDef>[]).add(param);
+    }
+    for (final item in ordered.values) {
+      item.sort((a, b) => a.paramId.compareTo(b.paramId));
+    }
+    return ordered;
+  }
 
   // ────────────── 端口 A 配置 ──────────────
 
@@ -428,6 +501,7 @@ class HmiController extends ChangeNotifier {
       _statusMessage = '端口 B 已连接: $port @ ${_portBConfig.baudRate}'
           ' ${_portBConfig.dataBits.label}${_portBConfig.parity.shortLabel}${_portBConfig.stopBits.label}';
       notifyListeners();
+      unawaited(syncSessionCatalog());
     } catch (error) {
       _statusMessage = '端口 B 连接失败: $error';
       notifyListeners();
@@ -452,6 +526,7 @@ class HmiController extends ChangeNotifier {
       debugPrint('端口 B 断开异常: $e');
     }
     _clearWaiters(_channelB);
+    _resetSessionCache();
     _statusMessage = '端口 B 已断开';
     notifyListeners();
   }
@@ -754,10 +829,12 @@ class HmiController extends ChangeNotifier {
     );
     if (resp == null) return null;
     if (resp.payload.length < 7 || resp.payload[0] == 0) return null;
-    return resp.payload[3] |
+    final value = resp.payload[3] |
         (resp.payload[4] << 8) |
         (resp.payload[5] << 16) |
         (resp.payload[6] << 24);
+    _sessionParamValues[paramId] = value;
+    return value;
   }
 
   /// 写入单个运行时参数 (仅 RAM, 不自动保存)。
@@ -783,6 +860,7 @@ class HmiController extends ChangeNotifier {
     if (resp == null || resp.payload.isEmpty || resp.payload.last != 0) {
       return null;
     }
+    _sessionParamValues[paramId] = value;
     return value;
   }
 
@@ -1000,6 +1078,197 @@ class HmiController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _resetSessionCache() {
+    _sessionState = HmiSessionClientState.disconnected;
+    _sessionSyncInProgress = false;
+    _sessionSubscriptionMask = 0;
+    _sessionGroups.clear();
+    _sessionParams.clear();
+    _sessionParamValues.clear();
+    _sessionEvents.clear();
+  }
+
+  Future<void> syncSessionCatalog() async {
+    if (_sessionSyncInProgress) {
+      return;
+    }
+    if (!_transportB.isConnected) {
+      _resetSessionCache();
+      _statusMessage = 'USART1未连接';
+      notifyListeners();
+      return;
+    }
+
+    _sessionSyncInProgress = true;
+    _sessionState = HmiSessionClientState.hello;
+    notifyListeners();
+
+    try {
+      final hello = await _runSessionCommand(
+        command: HmiSessionCommand.hello,
+        label: 'Session握手',
+      );
+      if (hello == null || hello.payload.length < 2 || hello.payload[0] != 0) {
+        _sessionState = HmiSessionClientState.degraded;
+        return;
+      }
+
+      _sessionState = HmiSessionClientState.deviceInfo;
+      notifyListeners();
+      final info = await _runSessionCommand(
+        command: HmiSessionCommand.deviceInfo,
+        label: '设备信息',
+      );
+      if (info == null || info.payload.length < 4 || info.payload[0] != 0) {
+        _sessionState = HmiSessionClientState.degraded;
+        return;
+      }
+
+      final groups = await _fetchGroupCatalog();
+      final params = await _fetchParamCatalog();
+      if (groups.isEmpty || params.isEmpty) {
+        _sessionState = HmiSessionClientState.degraded;
+        return;
+      }
+      _sessionGroups
+        ..clear()
+        ..addAll(groups);
+      _sessionParams
+        ..clear()
+        ..addAll(params);
+      _sessionState = HmiSessionClientState.directoryReady;
+      notifyListeners();
+
+      await readAllSessionParams();
+      _sessionState = HmiSessionClientState.valuesReady;
+      notifyListeners();
+
+      final subscribed = await sendSessionSubscribe(
+        hmiStreamMaskEvents | hmiStreamMaskLogs | hmiStreamMaskStack,
+      );
+      _sessionSubscriptionMask = subscribed;
+      _sessionState = subscribed == 0
+          ? HmiSessionClientState.degraded
+          : HmiSessionClientState.subscribed;
+    } finally {
+      _sessionSyncInProgress = false;
+      notifyListeners();
+    }
+  }
+
+  Future<List<HmiSessionGroupDef>> _fetchGroupCatalog() async {
+    final groups = <HmiSessionGroupDef>[];
+    var offset = 0;
+
+    while (true) {
+      final resp = await _runSessionCommand(
+        command: HmiSessionCommand.getGroupList,
+        payload: <int>[offset & 0xFF, 0x08],
+        label: '读取参数分组',
+      );
+      if (resp == null) {
+        return <HmiSessionGroupDef>[];
+      }
+      final page = parseGroupCatalogPage(resp.payload);
+      groups.addAll(page.groups);
+      if (page.nextOffset == 0 || page.nextOffset == offset) {
+        break;
+      }
+      offset = page.nextOffset;
+    }
+    return groups;
+  }
+
+  Future<List<HmiSessionParamDef>> _fetchParamCatalog() async {
+    final params = <HmiSessionParamDef>[];
+    var offset = 0;
+
+    while (true) {
+      final resp = await _runSessionCommand(
+        command: HmiSessionCommand.getParamList,
+        payload: <int>[offset & 0xFF, 0x04],
+        label: '读取参数目录',
+      );
+      if (resp == null) {
+        return <HmiSessionParamDef>[];
+      }
+      final page = parseParamCatalogPage(resp.payload);
+      params.addAll(page.params);
+      if (page.nextOffset == 0 || page.nextOffset == offset) {
+        break;
+      }
+      offset = page.nextOffset;
+    }
+    return params;
+  }
+
+  Future<int> sendSessionSubscribe(int mask) async {
+    final resp = await _runSessionCommand(
+      command: HmiSessionCommand.subscribeStreams,
+      payload: <int>[mask & 0xFF],
+      label: '订阅推送',
+    );
+    if (resp == null || resp.payload.length < 2 || resp.payload[0] != 0) {
+      return 0;
+    }
+    return resp.payload[1];
+  }
+
+  Future<int> sendSessionUnsubscribe(int mask) async {
+    final resp = await _runSessionCommand(
+      command: HmiSessionCommand.unsubscribeStreams,
+      payload: <int>[mask & 0xFF],
+      label: '取消订阅',
+    );
+    if (resp == null || resp.payload.length < 2 || resp.payload[0] != 0) {
+      return _sessionSubscriptionMask;
+    }
+    return resp.payload[1];
+  }
+
+  Future<void> readAllSessionParams() async {
+    final ordered = _sessionParams.map((e) => e.paramId).toList()..sort();
+    final chunk = <int>[];
+    _sessionParamValues.clear();
+
+    for (final paramId in ordered) {
+      chunk.add(paramId);
+      if (chunk.length >= 8) {
+        await _readParamChunk(chunk);
+        chunk.clear();
+      }
+    }
+    if (chunk.isNotEmpty) {
+      await _readParamChunk(chunk);
+    }
+  }
+
+  Future<void> _readParamChunk(List<int> paramIds) async {
+    final resp = await _runSessionCommand(
+      command: HmiSessionCommand.getParamValuesBatch,
+      payload: <int>[paramIds.length & 0xFF, ...paramIds],
+      label: '批量读取参数',
+    );
+    if (resp == null || resp.payload.isEmpty) {
+      return;
+    }
+    final count = resp.payload[0];
+    var cursor = 1;
+    for (var i = 0; i < count; i++) {
+      if (cursor + 6 > resp.payload.length) {
+        break;
+      }
+      final paramId = resp.payload[cursor] | (resp.payload[cursor + 1] << 8);
+      final value =
+          resp.payload[cursor + 2] |
+          (resp.payload[cursor + 3] << 8) |
+          (resp.payload[cursor + 4] << 16) |
+          (resp.payload[cursor + 5] << 24);
+      _sessionParamValues[paramId] = value;
+      cursor += 6;
+    }
+  }
+
   // ────────────── 内部处理 ──────────────
 
   void _onIncomingBytes(Uint8List bytes, _PortChannel channel) {
@@ -1156,6 +1425,32 @@ class HmiController extends ChangeNotifier {
 
     _dispatchSessionWaiters(_channelB, frame);
 
+    if (frame.type == HmiSessionFrameType.event &&
+        frame.command == HmiSessionCommand.eventPush &&
+        frame.payload.length >= 3) {
+      final event = _parseSessionEvent(frame.payload);
+      _sessionEvents.insert(0, event);
+      if (_sessionEvents.length > 200) {
+        _sessionEvents.removeRange(200, _sessionEvents.length);
+      }
+    }
+
+    if (frame.type == HmiSessionFrameType.event &&
+        frame.command == HmiSessionCommand.stackSnapshotPush) {
+      try {
+        final snapshot = parseStackSnapshotPush(frame.payload);
+        _latestStackSnapshot = snapshot;
+        _stackSnapshots.insert(0, snapshot);
+        if (_stackSnapshots.length > _maxStackSnapshots) {
+          _stackSnapshots.removeRange(_maxStackSnapshots, _stackSnapshots.length);
+        }
+        _stackTaskStats = mergeStackTaskStats(_stackTaskStats, snapshot);
+        _enqueueStackSnapshotForDisk(snapshot);
+      } on FormatException {
+        // 保持日志可见即可，不因单帧异常影响会话。
+      }
+    }
+
     final placeholder = HmiFrame(
       address: HmiSessionFrame.sof0,
       function: frame.command.value,
@@ -1181,6 +1476,27 @@ class HmiController extends ChangeNotifier {
     _logs.insert(0, entry);
     _trimInMemoryLogsIfNeeded();
     _enqueueLogLineForDisk(_toJsonLine(entry));
+  }
+
+  HmiSessionEventEntry _parseSessionEvent(Uint8List payload) {
+    final code = payload[0];
+    final value0 = payload[1];
+    final value1 = payload[2];
+    final summary = switch (code) {
+      0x01 => '状态变化: 0x${toHex2(value0)} -> 0x${toHex2(value1)}',
+      0x02 => '运行标志: $value0 -> $value1',
+      0x03 => '启动链路: $value0 -> $value1',
+      0x04 => '报警码: 0x${toHex2(value0)} -> 0x${toHex2(value1)}',
+      0x05 => '报警锁存: $value0 -> $value1',
+      _ => '事件 0x${toHex2(code)}: $value0 -> $value1',
+    };
+    return HmiSessionEventEntry(
+      timestamp: DateTime.now(),
+      code: code,
+      value0: value0,
+      value1: value1,
+      summary: summary,
+    );
   }
 
   void _appendSessionTx(HmiSessionFrame frame, String portLabel) {

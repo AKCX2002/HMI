@@ -7,8 +7,8 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../core/protocol/crc_algorithm.dart';
 import '../../util/log_exporter.dart';
 import 'hmi_controller.dart';
-import 'hmi_param_config.dart';
 import 'hmi_protocol.dart';
+import 'hmi_session_catalog.dart';
 import 'hmi_serial_config_page.dart';
 import 'stack_stats.dart';
 
@@ -52,13 +52,6 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   final TextEditingController _rawExpected = TextEditingController(
     text: '09,0A',
   );
-
-  /// DGUS 调节面板状态
-  final TextEditingController _dbusParamId = TextEditingController(text: '10');
-  final TextEditingController _dbusValue = TextEditingController(text: '0');
-  final TextEditingController _dbusNodeAddr = TextEditingController(text: 'FA');
-  String _dbusStatus = '';
-  int? _dbusReadResult;
 
   /// DGUS 系统信息
   List<int>? _sysInfoData;
@@ -135,9 +128,6 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     _cmd4aPulses.dispose();
     _cmd4bDuration.dispose();
     _cmd4cDuration.dispose();
-    _dbusParamId.dispose();
-    _dbusValue.dispose();
-    _dbusNodeAddr.dispose();
     super.dispose();
   }
 
@@ -1980,65 +1970,20 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
               _buildUsart1SectionHeader(
                 icon: Icons.tune,
                 title: '参数调节',
-                subtitle: '通过 USART1 HMI Session 批量读写运行时参数',
-              ),
-              const SizedBox(height: 12),
-              LayoutBuilder(
-                builder: (_, constraints) {
-                  final compact = constraints.maxWidth < 520;
-                  return Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: <Widget>[
-                      SizedBox(
-                        width: compact ? 96 : 120,
-                        child: _textField('参数ID(HEX)', _dbusParamId),
-                      ),
-                      SizedBox(
-                        width: compact ? 110 : 140,
-                        child: _numberField('值', _dbusValue),
-                      ),
-                      SizedBox(
-                        width: compact ? 96 : 120,
-                        child: _textField('节点HEX', _dbusNodeAddr),
-                      ),
-                      _miniBtn('读取', true, () => _dbusRead(controller)),
-                      _miniBtn('写入', true, () => _dbusWrite(controller)),
-                      _miniBtn('保存EEPROM', true, () => _dbusSave(controller)),
-                    ],
-                  );
-                },
-              ),
-              if (_dbusStatus.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text(
-                    _dbusStatus,
-                    style: GoogleFonts.ibmPlexMono(
-                      color: _dbusReadResult != null
-                          ? const Color(0xFF9FFFC9)
-                          : const Color(0xFFFFE082),
-                      fontSize: 12,
-                    ),
-                  ),
+                subtitle: '通过 USART1 HMI Session 动态加载目录并批量读写运行时参数',
+                trailing: _miniBtn(
+                  '重新同步',
+                  !controller.sessionSyncInProgress,
+                  () => controller.syncSessionCatalog(),
                 ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: <Widget>[
-                  _miniBtn(
-                    '批量读取前10项',
-                    true,
-                    () => _dbusBatchRead(controller, 10),
-                  ),
-                  _miniBtn(
-                    '批量读取全部',
-                    true,
-                    () => _dbusBatchRead(controller, 53),
-                  ),
-                  _miniBtn('恢复默认值', true, () => _dbusLoadDefault(controller)),
-                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                '状态: ${controller.sessionState.name}  分组 ${controller.sessionGroups.length}  参数 ${controller.sessionParams.length}',
+                style: GoogleFonts.ibmPlexMono(
+                  color: const Color(0xFF9DC1EB),
+                  fontSize: 12,
+                ),
               ),
             ],
           ),
@@ -2350,123 +2295,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     }
   }
 
-  /// DGUS 读取参数
-  Future<void> _dbusRead(HmiController controller) async {
-    final paramId = _safeHex(_dbusParamId.text, fallback: 0x10);
-    final nodeAddr = _safeHex(_dbusNodeAddr.text, fallback: 0xFA);
-    final result = await controller.sendParamRead(
-      nodeAddress: nodeAddr,
-      paramId: paramId,
-      usePortB: _dgusUsePortB,
-    );
-    if (!mounted) return;
-    if (result != null) {
-      _dbusReadResult = result;
-      _dbusValue.text = result.toString();
-      setState(() => _dbusStatus = '参数 0x${toHex2(paramId)} = $result');
-    } else {
-      setState(() {
-        _dbusStatus = _formatDgusParamFailure(
-          controller,
-          '参数 0x${toHex2(paramId)} 读取失败',
-        );
-        _dbusReadResult = null;
-      });
-    }
-  }
-
-  /// DGUS 写入参数
-  Future<void> _dbusWrite(HmiController controller) async {
-    final paramId = _safeHex(_dbusParamId.text, fallback: 0x10);
-    final value = _safeInt(_dbusValue, fallback: 0);
-    final nodeAddr = _safeHex(_dbusNodeAddr.text, fallback: 0xFA);
-    final result = await controller.sendParamWrite(
-      nodeAddress: nodeAddr,
-      paramId: paramId,
-      value: value,
-      usePortB: _dgusUsePortB,
-    );
-    if (!mounted) return;
-    if (result != null) {
-      _dbusReadResult = result;
-      setState(() => _dbusStatus = '写入成功: 参数 0x${toHex2(paramId)} = $result');
-    } else {
-      setState(() {
-        _dbusStatus = _formatDgusParamFailure(
-          controller,
-          '参数 0x${toHex2(paramId)} 写入失败',
-        );
-        _dbusReadResult = null;
-      });
-    }
-  }
-
-  /// DGUS 保存 EEPROM
-  Future<void> _dbusSave(HmiController controller) async {
-    final nodeAddr = _safeHex(_dbusNodeAddr.text, fallback: 0xFA);
-    final ok = await controller.sendParamSave(
-      nodeAddress: nodeAddr,
-      usePortB: _dgusUsePortB,
-    );
-    if (!mounted) return;
-    setState(() => _dbusStatus = ok ? '已保存到 EEPROM' : '保存失败');
-  }
-
-  /// DGUS 批量读取
-  Future<void> _dbusBatchRead(HmiController controller, int count) async {
-    final allParams = kParamDefs.take(count).toList();
-    final nodeAddr = _safeHex(_dbusNodeAddr.text, fallback: 0xFA);
-    setState(() => _dbusStatus = '批量读取 ${allParams.length} 项...');
-    int ok = 0;
-    for (final p in allParams) {
-      final result = await controller.sendParamRead(
-        nodeAddress: nodeAddr,
-        paramId: p.id,
-        usePortB: _dgusUsePortB,
-      );
-      if (result != null) {
-        _paramValues[p.id] = result;
-        _paramEditors[p.id]?.text = result.toString();
-        ok++;
-      }
-    }
-    if (!mounted) return;
-    setState(() => _dbusStatus = '批量读取完成: $ok/${allParams.length} 项成功');
-  }
-
-  /// DGUS 恢复默认值
-  Future<void> _dbusLoadDefault(HmiController controller) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('确认恢复默认'),
-        content: const Text('确定要恢复打包机所有运行时参数为默认值吗？参数修改将丢失。'),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('恢复'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    final nodeAddr = _safeHex(_dbusNodeAddr.text, fallback: 0xFA);
-    final ok = await controller.sendParamLoad(
-      nodeAddress: nodeAddr,
-      action: 1,
-      usePortB: _dgusUsePortB,
-    );
-    if (!mounted) return;
-    setState(() => _dbusStatus = ok ? '已恢复默认值，请重新读取' : '恢复默认值失败');
-  }
-
   /// DGUS 读取系统信息 (VP 0x1000~0x1003)
   Future<void> _dbusSysInfo(HmiController controller) async {
-    final nodeAddr = _safeHex(_dbusNodeAddr.text, fallback: 0xFA);
+    final nodeAddr = _safeHex(_packerNodeAddr.text, fallback: 0xFA);
     setState(() {
       _sysInfoLoading = true;
       _sysInfoStatus = '读取 DGUS 系统信息...';
@@ -2635,7 +2466,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
 
   // (removed unused _buildPortPanel)
   Widget _buildSettingsPage(HmiController controller) {
-    final params = kParamDefsByGroup;
+    final params = controller.sessionCatalogByGroup;
     final nodeAddr = _safeHex(_packerNodeAddr.text, fallback: 0xFA);
 
     return Container(
@@ -2717,12 +2548,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
               padding: const EdgeInsets.all(12),
               children: <Widget>[
                 for (final group in params.entries) ...[
-                  _buildParamGroup(
-                    controller,
-                    nodeAddr,
-                    group.key,
-                    group.value,
-                  ),
+                  _buildParamGroup(controller, nodeAddr, group.key, group.value),
                   const SizedBox(height: 8),
                 ],
               ],
@@ -2769,8 +2595,8 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   Widget _buildParamGroup(
     HmiController controller,
     int nodeAddr,
-    String groupName,
-    List<HmiParamDef> params,
+    HmiSessionGroupDef group,
+    List<HmiSessionParamDef> params,
   ) {
     return Container(
       decoration: BoxDecoration(
@@ -2785,7 +2611,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
           childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
           initiallyExpanded: params.length <= 6,
           title: Text(
-            '$groupName (${params.length}项)',
+            '${group.groupName} (${params.length}项)',
             style: GoogleFonts.ibmPlexSans(
               color: const Color(0xFF5ED0FF),
               fontSize: 14,
@@ -2812,7 +2638,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   }
 
   /// 参数范围指示
-  Widget _paramRange(HmiParamDef p) {
+  Widget _paramRange(HmiSessionParamDef p) {
     return Text(
       '${_fmt(p.min)} ~ ${_fmt(p.max)}${p.unit.isNotEmpty ? ' ${p.unit}' : ''}',
       maxLines: 1,
@@ -2828,9 +2654,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   Widget _buildParamRow(
     HmiController controller,
     int nodeAddr,
-    HmiParamDef param,
+    HmiSessionParamDef param,
   ) {
-    final value = _paramValues[param.id];
+    final value = controller.sessionParamValues[param.id] ?? _paramValues[param.id];
     final editor = _paramEditors.putIfAbsent(
       param.id,
       () => TextEditingController(text: value?.toString() ?? ''),
@@ -2854,10 +2680,11 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                       children: <Widget>[
                         Expanded(child: _paramCurValue(raw, param)),
                         const SizedBox(width: 6),
-                        SizedBox(
-                          width: 80,
-                          child: _paramField(editor, inRange),
-                        ),
+                        if (!param.isReadOnly)
+                          SizedBox(
+                            width: 80,
+                            child: _paramField(editor, inRange),
+                          ),
                         const SizedBox(width: 4),
                         _writeBtn(controller, nodeAddr, param, editor),
                       ],
@@ -2871,9 +2698,11 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                     SizedBox(width: 100, child: _paramRange(param)),
                     const SizedBox(width: 6),
                     SizedBox(width: 80, child: _paramCurValue(raw, param)),
-                    const SizedBox(width: 6),
-                    SizedBox(width: 80, child: _paramField(editor, inRange)),
-                    const SizedBox(width: 4),
+                    if (!param.isReadOnly) ...[
+                      const SizedBox(width: 6),
+                      SizedBox(width: 80, child: _paramField(editor, inRange)),
+                      const SizedBox(width: 4),
+                    ],
                     _writeBtn(controller, nodeAddr, param, editor),
                     const SizedBox(width: 4),
                     _readBtn(controller, nodeAddr, param.id),
@@ -2884,7 +2713,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     );
   }
 
-  Widget _paramLabel(HmiParamDef p) {
+  Widget _paramLabel(HmiSessionParamDef p) {
     return Text(
       '${p.name} (0x${toHex2(p.id)})',
       maxLines: 1,
@@ -2896,7 +2725,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     );
   }
 
-  Widget _paramCurValue(String raw, HmiParamDef p) {
+  Widget _paramCurValue(String raw, HmiSessionParamDef p) {
     return Text(
       raw + (p.unit.isNotEmpty ? ' ${p.unit}' : ''),
       style: GoogleFonts.ibmPlexMono(
@@ -2933,20 +2762,25 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   Widget _writeBtn(
     HmiController controller,
     int nodeAddr,
-    HmiParamDef param,
+    HmiSessionParamDef param,
     TextEditingController editor,
   ) {
     return SizedBox(
       height: 32,
       child: ElevatedButton(
-        onPressed: () => _writeParam(controller, nodeAddr, param, editor),
+        onPressed: param.isReadOnly
+            ? null
+            : () => _writeParam(controller, nodeAddr, param, editor),
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color(0xFF1A3A5C),
           foregroundColor: const Color(0xFFD6E9FF),
           padding: const EdgeInsets.symmetric(horizontal: 8),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
         ),
-        child: Text('写入', style: GoogleFonts.ibmPlexSans(fontSize: 11)),
+        child: Text(
+          param.isReadOnly ? '只读' : '写入',
+          style: GoogleFonts.ibmPlexSans(fontSize: 11),
+        ),
       ),
     );
   }
@@ -2966,7 +2800,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   }
 
   /// 校验参数值是否在范围内
-  bool _validateParam(HmiParamDef param, String text) {
+  bool _validateParam(HmiSessionParamDef param, String text) {
     final v = int.tryParse(text.trim());
     if (v == null) return false;
     return v >= param.min && v <= param.max;
@@ -3004,7 +2838,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   Future<void> _writeParam(
     HmiController controller,
     int nodeAddr,
-    HmiParamDef param,
+    HmiSessionParamDef param,
     TextEditingController editor,
   ) async {
     final text = editor.text.trim();
@@ -3060,7 +2894,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     });
     int count = 0;
     int errors = 0;
-    for (final p in kParamDefs) {
+    for (final p in controller.sessionParams) {
       try {
         final value = await controller.sendParamRead(
           nodeAddress: nodeAddr,
@@ -3081,7 +2915,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
       if ((count + errors) % 10 == 0 && mounted) {
         setState(
           () => _paramsStatus =
-              '已读取 $count/${kParamDefs.length}\u2026 ($errors项失败)',
+              '已读取 $count/${controller.sessionParams.length}\u2026 ($errors项失败)',
         );
       }
     }
@@ -3089,8 +2923,8 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
       setState(() {
         _paramsLoading = false;
         _paramsStatus = errors > 0
-            ? '读取完成: $count/${kParamDefs.length} 个参数 ($errors 项失败)'
-            : '读取完成: $count/${kParamDefs.length} 个参数';
+            ? '读取完成: $count/${controller.sessionParams.length} 个参数 ($errors 项失败)'
+            : '读取完成: $count/${controller.sessionParams.length} 个参数';
       });
     }
   }
@@ -3726,17 +3560,6 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
               .toList(),
         );
       },
-    );
-  }
-
-  Widget _numberField(String label, TextEditingController controller) {
-    return TextField(
-      controller: controller,
-      keyboardType: TextInputType.number,
-      smartQuotesType: SmartQuotesType.disabled,
-      smartDashesType: SmartDashesType.disabled,
-      style: const TextStyle(color: Color(0xFFE6F2FF)),
-      decoration: _inputDecoration(label),
     );
   }
 
