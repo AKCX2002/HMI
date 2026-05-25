@@ -452,8 +452,6 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
       value: value,
       canEdit: canEdit,
       fontSize: 12,
-      buttonSize: const Size(36, 36),
-      spacing: 8,
       decoration: _fieldDeco('波特率'),
       onChanged: onChanged,
     );
@@ -584,8 +582,6 @@ class _InlineBaudRateField extends StatefulWidget {
     required this.value,
     required this.canEdit,
     required this.fontSize,
-    required this.buttonSize,
-    required this.spacing,
     required this.decoration,
     required this.onChanged,
   });
@@ -593,8 +589,6 @@ class _InlineBaudRateField extends StatefulWidget {
   final int value;
   final bool canEdit;
   final double fontSize;
-  final Size buttonSize;
-  final double spacing;
   final InputDecoration decoration;
   final ValueChanged<int> onChanged;
 
@@ -640,80 +634,27 @@ class _InlineBaudRateFieldState extends State<_InlineBaudRateField> {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: <Widget>[
-        Expanded(
-          child: TextFormField(
-            controller: _controller,
-            enabled: widget.canEdit,
-            keyboardType: TextInputType.number,
-            inputFormatters: <TextInputFormatter>[
-              FilteringTextInputFormatter.digitsOnly,
-            ],
-            style: TextStyle(
-              color: const Color(0xFFD7E8FF),
-              fontSize: widget.fontSize,
-            ),
-            decoration: widget.decoration.copyWith(
-              helperText:
-                  '${HmiPortConfig.minCustomBaudRate}-${HmiPortConfig.maxCustomBaudRate}',
-              helperStyle: TextStyle(
-                color: const Color(0x667DB5FF),
-                fontSize: widget.fontSize - 2,
-              ),
-            ),
-            onFieldSubmitted: (_) => _commitValue(),
-            onEditingComplete: _commitValue,
-          ),
-        ),
-        SizedBox(width: widget.spacing),
-        Tooltip(
-          message: '选择预设波特率',
-          child: PopupMenuButton<int>(
-            enabled: widget.canEdit,
-            tooltip: '选择预设波特率',
-            color: const Color(0xFF122B4D),
-            onSelected: (value) {
-              _controller.text = '$value';
-              _commitValue();
-            },
-            itemBuilder: (context) {
-              return HmiPortConfig.supportedBaudRates
-                  .map(
-                    (value) => PopupMenuItem<int>(
-                      value: value,
-                      child: Text(
-                        '$value',
-                        style: TextStyle(
-                          color: const Color(0xFFD7E8FF),
-                          fontSize: widget.fontSize,
-                        ),
-                      ),
-                    ),
-                  )
-                  .toList();
-            },
-            child: Container(
-              width: widget.buttonSize.width,
-              height: widget.buttonSize.height,
-              decoration: BoxDecoration(
-                color: widget.canEdit
-                    ? const Color(0xFF375A7F)
-                    : const Color(0xFF445E78),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                '预',
-                style: GoogleFonts.ibmPlexSans(
-                  color: Colors.white,
-                  fontSize: widget.fontSize - 1,
-                ),
-              ),
-            ),
-          ),
-        ),
+    return TextFormField(
+      controller: _controller,
+      enabled: widget.canEdit,
+      keyboardType: TextInputType.number,
+      inputFormatters: <TextInputFormatter>[
+        FilteringTextInputFormatter.digitsOnly,
       ],
+      style: TextStyle(
+        color: const Color(0xFFD7E8FF),
+        fontSize: widget.fontSize,
+      ),
+      decoration: widget.decoration.copyWith(
+        hintText:
+            '${HmiPortConfig.minCustomBaudRate}-${HmiPortConfig.maxCustomBaudRate}',
+        hintStyle: TextStyle(
+          color: const Color(0x667DB5FF),
+          fontSize: widget.fontSize,
+        ),
+      ),
+      onFieldSubmitted: (_) => _commitValue(),
+      onEditingComplete: _commitValue,
     );
   }
 }

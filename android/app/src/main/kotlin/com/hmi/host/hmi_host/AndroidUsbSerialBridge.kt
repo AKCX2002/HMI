@@ -24,6 +24,7 @@ private const val METHOD_CHANNEL_NAME = "hmi_host/android_usb_serial/methods"
 private const val EVENT_CHANNEL_NAME = "hmi_host/android_usb_serial/events"
 private const val ACTION_USB_PERMISSION =
     "com.hmi.host.hmi_host.USB_SERIAL_PERMISSION"
+private const val USB_WRITE_TIMEOUT_MS = 2000
 
 class AndroidUsbSerialBridge(
     private val activity: Activity,
@@ -342,7 +343,7 @@ class AndroidUsbSerialBridge(
                     return
                 }
         try {
-            session.ioManager.writeAsync(bytes)
+            session.port.write(bytes, USB_WRITE_TIMEOUT_MS)
             result.success(bytes.size)
         } catch (e: Exception) {
             closeSession(transportId, notifyClosed = true)
