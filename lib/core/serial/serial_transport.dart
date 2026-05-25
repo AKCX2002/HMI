@@ -1,5 +1,10 @@
 import 'dart:typed_data';
 
+enum SerialConnectionState {
+  connected,
+  disconnected,
+}
+
 /// 与平台无关的串口抽象层。
 ///
 /// 协议层与业务层应依赖该接口，而不是直接依赖具体插件实现。
@@ -29,6 +34,9 @@ abstract class SerialTransport {
 
   /// 当前是否已连接。
   bool get isConnected;
+
+  /// 串口连接状态变化。
+  Stream<SerialConnectionState> get connectionStates;
 
   /// 串口原始字节流。
   Stream<Uint8List> get incomingBytes;

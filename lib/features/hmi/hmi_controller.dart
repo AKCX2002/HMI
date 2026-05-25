@@ -155,6 +155,12 @@ class _PortChannel {
 
   HmiPortConfig get config => configRef();
 
+  void resetBuffers() {
+    rxBuffer.clear();
+    dgusRxBuffer.clear();
+    sessionDecoder.reset();
+  }
+
   void dispose() {
     subscription?.cancel();
     subscription = null;
@@ -174,8 +180,7 @@ class _PortChannel {
         w.completer.complete(null);
       }
     }
-    rxBuffer.clear();
-    dgusRxBuffer.clear();
+    resetBuffers();
     dgusWaiters.clear();
     sessionWaiters.clear();
   }
@@ -212,11 +217,15 @@ class HmiController extends ChangeNotifier {
     _subscriptionA = _transportA.incomingBytes.listen(
       (bytes) => _onIncomingBytes(bytes, _channelA),
     );
-    if (transportB != null) {
-      _subscriptionB = _transportB.incomingBytes.listen(
-        (bytes) => _onIncomingBytes(bytes, _channelB),
-      );
-    }
+    _connectionSubscriptionA = _transportA.connectionStates.listen(
+      (state) => _onTransportStateChanged(_channelA, state),
+    );
+    _subscriptionB = _transportB.incomingBytes.listen(
+      (bytes) => _onIncomingBytes(bytes, _channelB),
+    );
+    _connectionSubscriptionB = _transportB.connectionStates.listen(
+      (state) => _onTransportStateChanged(_channelB, state),
+    );
   }
 
   final SerialTransport _transportA;
@@ -226,6 +235,8 @@ class HmiController extends ChangeNotifier {
 
   StreamSubscription<Uint8List>? _subscriptionA;
   StreamSubscription<Uint8List>? _subscriptionB;
+  StreamSubscription<SerialConnectionState>? _connectionSubscriptionA;
+  StreamSubscription<SerialConnectionState>? _connectionSubscriptionB;
 
   static const int _diskFlushBatchSize = 40;
   static const int _maxInMemoryLogs = 5000;
@@ -256,6 +267,7 @@ class HmiController extends ChangeNotifier {
   List<String> _portsA = <String>[];
   List<String> _portsB = <String>[];
   int _sessionSeq = 1;
+  int _sessionEpoch = 0;
   String _deviceName = '打包机';
   HmiSessionClientState _sessionState = HmiSessionClientState.disconnected;
   bool _sessionHandshakeReady = false;
@@ -465,6 +477,7 @@ class HmiController extends ChangeNotifier {
       return;
     }
     try {
+      _clearChannelState(_channelA);
       await _transportA.connect(
         portName: port,
         baudRate: _portAConfig.baudRate,
@@ -496,6 +509,7 @@ class HmiController extends ChangeNotifier {
       return;
     }
     try {
+      _clearChannelState(_channelB);
       await _transportB.connect(
         portName: port,
         baudRate: _portBConfig.baudRate,
@@ -507,6 +521,7 @@ class HmiController extends ChangeNotifier {
       _statusMessage =
           '端口 B 已连接: $port @ ${_portBConfig.baudRate}'
           ' ${_portBConfig.dataBits.label}${_portBConfig.parity.shortLabel}${_portBConfig.stopBits.label}';
+      _sessionEpoch++;
       notifyListeners();
       unawaited(syncSessionCatalog());
     } catch (error) {
@@ -521,7 +536,7 @@ class HmiController extends ChangeNotifier {
     } catch (e) {
       debugPrint('端口 A 断开异常: $e');
     }
-    _clearWaiters(_channelA);
+    _clearChannelState(_channelA);
     _statusMessage = '端口 A 已断开';
     notifyListeners();
   }
@@ -532,14 +547,15 @@ class HmiController extends ChangeNotifier {
     } catch (e) {
       debugPrint('端口 B 断开异常: $e');
     }
-    _clearWaiters(_channelB);
+    _sessionEpoch++;
+    _clearChannelState(_channelB);
     _resetSessionCache();
     _statusMessage = '端口 B 已断开';
     notifyListeners();
   }
 
   /// 清理通道中所有未完成的 DGUS 等待者，防止断开后内存泄漏。
-  void _clearWaiters(_PortChannel channel) {
+  void _clearChannelState(_PortChannel channel) {
     for (final w in channel.dgusWaiters) {
       if (!w.completer.isCompleted) {
         w.completer.complete(null);
@@ -552,6 +568,7 @@ class HmiController extends ChangeNotifier {
       }
     }
     channel.sessionWaiters.clear();
+    channel.resetBuffers();
   }
 
   /// 向后兼容：连接/断开端口 A。
@@ -1266,6 +1283,26 @@ class HmiController extends ChangeNotifier {
     _deviceName = '打包机';
   }
 
+  void _onTransportStateChanged(
+    _PortChannel channel,
+    SerialConnectionState state,
+  ) {
+    if (state != SerialConnectionState.disconnected) {
+      return;
+    }
+    _clearChannelState(channel);
+    if (identical(channel, _channelB)) {
+      _sessionEpoch++;
+      _resetSessionCache();
+    }
+    _statusMessage = '${channel.config.label}连接已断开';
+    notifyListeners();
+  }
+
+  bool _isSessionEpochCurrent(int epoch) {
+    return epoch == _sessionEpoch && _transportB.isConnected;
+  }
+
   Future<void> syncSessionCatalog() async {
     if (_sessionSyncInProgress) {
       return;
@@ -1277,6 +1314,7 @@ class HmiController extends ChangeNotifier {
       return;
     }
 
+    final epoch = _sessionEpoch;
     _sessionSyncInProgress = true;
     _sessionState = HmiSessionClientState.hello;
     notifyListeners();
@@ -1291,6 +1329,9 @@ class HmiController extends ChangeNotifier {
         _sessionState = HmiSessionClientState.degraded;
         return;
       }
+      if (!_isSessionEpochCurrent(epoch)) {
+        return;
+      }
       _sessionHandshakeReady = true;
 
       _sessionState = HmiSessionClientState.deviceInfo;
@@ -1303,6 +1344,9 @@ class HmiController extends ChangeNotifier {
         _sessionState = HmiSessionClientState.degraded;
         return;
       }
+      if (!_isSessionEpochCurrent(epoch)) {
+        return;
+      }
 
       if (info.payload.length > 5) {
         _deviceName = utf8.decode(info.payload.sublist(5));
@@ -1310,6 +1354,9 @@ class HmiController extends ChangeNotifier {
 
       final groups = await _fetchGroupCatalog();
       final params = await _fetchParamCatalog();
+      if (!_isSessionEpochCurrent(epoch)) {
+        return;
+      }
       if (groups.isEmpty || params.isEmpty) {
         _sessionState = HmiSessionClientState.degraded;
         return;
@@ -1324,12 +1371,18 @@ class HmiController extends ChangeNotifier {
       notifyListeners();
 
       await readAllSessionParams();
+      if (!_isSessionEpochCurrent(epoch)) {
+        return;
+      }
       _sessionState = HmiSessionClientState.valuesReady;
       notifyListeners();
 
       final subscribed = await sendSessionSubscribe(
         hmiStreamMaskEvents | hmiStreamMaskLogs | hmiStreamMaskStack,
       );
+      if (!_isSessionEpochCurrent(epoch)) {
+        return;
+      }
       _sessionSubscriptionMask = subscribed;
       _sessionState = subscribed == 0
           ? HmiSessionClientState.degraded
@@ -1929,6 +1982,16 @@ class HmiController extends ChangeNotifier {
     } catch (e) {
       debugPrint('取消订阅 B 异常: $e');
     }
+    try {
+      _connectionSubscriptionA?.cancel();
+    } catch (e) {
+      debugPrint('取消状态订阅 A 异常: $e');
+    }
+    try {
+      _connectionSubscriptionB?.cancel();
+    } catch (e) {
+      debugPrint('取消状态订阅 B 异常: $e');
+    }
     _channelA.dispose();
     _channelB.dispose();
     super.dispose();
@@ -1957,6 +2020,10 @@ class SerialTransportDummy implements SerialTransport {
 
   @override
   bool get isConnected => false;
+
+  @override
+  Stream<SerialConnectionState> get connectionStates =>
+      const Stream<SerialConnectionState>.empty();
 
   @override
   Stream<Uint8List> get incomingBytes => const Stream<Uint8List>.empty();

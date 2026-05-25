@@ -2,6 +2,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hmi_host/core/serial/android_usb_serial_transport.dart';
 import 'package:hmi_host/core/serial/desktop_serial_transport.dart';
+import 'package:hmi_host/core/serial/serial_transport.dart';
 import 'package:hmi_host/core/serial/serial_transport_impl.dart';
 
 void main() {
@@ -97,8 +98,11 @@ void main() {
 
     test('native error 事件会立刻清除连接状态', () async {
       final transport = AndroidUsbSerialTransport();
+      final states = <SerialConnectionState>[];
+      final subscription = transport.connectionStates.listen(states.add);
 
       await transport.connect(portName: 'DAPLink CDC ACM', baudRate: 9600);
+      await Future<void>.delayed(Duration.zero);
       expect(transport.isConnected, isTrue);
 
       transport.debugHandleNativeEvent(<Object?, Object?>{
@@ -106,8 +110,18 @@ void main() {
         'type': 'error',
         'message': 'write failed',
       });
+      await Future<void>.delayed(Duration.zero);
 
       expect(transport.isConnected, isFalse);
+      expect(
+        states,
+        <SerialConnectionState>[
+          SerialConnectionState.connected,
+          SerialConnectionState.disconnected,
+        ],
+      );
+
+      await subscription.cancel();
     });
   });
 }

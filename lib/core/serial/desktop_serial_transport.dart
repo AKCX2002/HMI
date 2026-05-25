@@ -8,6 +8,8 @@ import 'serial_transport.dart';
 class DesktopSerialTransport implements SerialTransport {
   final StreamController<Uint8List> _incomingController =
       StreamController<Uint8List>.broadcast();
+  final StreamController<SerialConnectionState> _connectionStateController =
+      StreamController<SerialConnectionState>.broadcast();
 
   SerialPort? _port;
   SerialPortReader? _reader;
@@ -63,9 +65,11 @@ class DesktopSerialTransport implements SerialTransport {
         _incomingController.add,
         onError: (Object error) {
           debugPrint('桌面串口读取错误: $error');
+          unawaited(disconnect());
         },
       );
       _port = port;
+      _connectionStateController.add(SerialConnectionState.connected);
     } catch (e) {
       _readerSubscription?.cancel();
       _readerSubscription = null;
@@ -77,6 +81,7 @@ class DesktopSerialTransport implements SerialTransport {
 
   @override
   Future<void> disconnect() async {
+    final wasConnected = _port?.isOpen ?? false;
     try {
       await _readerSubscription?.cancel();
     } catch (e) {
@@ -97,10 +102,17 @@ class DesktopSerialTransport implements SerialTransport {
       }
       _port = null;
     }
+    if (wasConnected) {
+      _connectionStateController.add(SerialConnectionState.disconnected);
+    }
   }
 
   @override
   bool get isConnected => _port?.isOpen ?? false;
+
+  @override
+  Stream<SerialConnectionState> get connectionStates =>
+      _connectionStateController.stream;
 
   @override
   Stream<Uint8List> get incomingBytes => _incomingController.stream;
@@ -130,6 +142,11 @@ class DesktopSerialTransport implements SerialTransport {
       await _incomingController.close();
     } catch (e) {
       debugPrint('关闭桌面串口流控制器异常: $e');
+    }
+    try {
+      await _connectionStateController.close();
+    } catch (e) {
+      debugPrint('关闭桌面串口状态流异常: $e');
     }
   }
 }

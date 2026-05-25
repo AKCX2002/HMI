@@ -115,6 +115,10 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
 
   @override
   void dispose() {
+    for (final editor in _paramEditors.values) {
+      editor.dispose();
+    }
+    _paramEditors.clear();
     _packerNodeAddr.dispose();
     _retryCount.dispose();
     _timeoutMs.dispose();

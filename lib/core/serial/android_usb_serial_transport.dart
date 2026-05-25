@@ -28,6 +28,8 @@ class AndroidUsbSerialTransport implements SerialTransport {
 
   final StreamController<Uint8List> _incomingController =
       StreamController<Uint8List>.broadcast();
+  final StreamController<SerialConnectionState> _connectionStateController =
+      StreamController<SerialConnectionState>.broadcast();
   final int _transportId = _nextTransportId++;
 
   StreamSubscription<dynamic>? _eventSubscription;
@@ -73,6 +75,7 @@ class AndroidUsbSerialTransport implements SerialTransport {
         'flowControl': flowControl,
       });
       _isConnected = true;
+      _connectionStateController.add(SerialConnectionState.connected);
     } on PlatformException catch (e) {
       _isConnected = false;
       throw StateError(e.message ?? 'Android USB 串口连接失败');
@@ -88,12 +91,16 @@ class AndroidUsbSerialTransport implements SerialTransport {
     } on PlatformException catch (e) {
       throw StateError(e.message ?? 'Android USB 串口断开失败');
     } finally {
-      _isConnected = false;
+      _markDisconnected();
     }
   }
 
   @override
   bool get isConnected => _isConnected;
+
+  @override
+  Stream<SerialConnectionState> get connectionStates =>
+      _connectionStateController.stream;
 
   @visibleForTesting
   int get debugTransportId => _transportId;
@@ -138,7 +145,7 @@ class AndroidUsbSerialTransport implements SerialTransport {
         }
         break;
       case 'error':
-        _isConnected = false;
+        _markDisconnected();
         final message = event['message']?.toString();
         if (message != null && message.isNotEmpty) {
           debugPrint('Android USB 串口错误: $message');
@@ -146,7 +153,7 @@ class AndroidUsbSerialTransport implements SerialTransport {
         break;
       case 'detached':
       case 'closed':
-        _isConnected = false;
+        _markDisconnected();
         break;
       default:
         break;
@@ -156,6 +163,14 @@ class AndroidUsbSerialTransport implements SerialTransport {
   @visibleForTesting
   void debugHandleNativeEvent(dynamic event) {
     _handleNativeEvent(event);
+  }
+
+  void _markDisconnected() {
+    if (!_isConnected) {
+      return;
+    }
+    _isConnected = false;
+    _connectionStateController.add(SerialConnectionState.disconnected);
   }
 
   /// 释放内部资源。
@@ -175,6 +190,11 @@ class AndroidUsbSerialTransport implements SerialTransport {
       await _incomingController.close();
     } catch (e) {
       debugPrint('关闭 Android USB 串口流控制器异常: $e');
+    }
+    try {
+      await _connectionStateController.close();
+    } catch (e) {
+      debugPrint('关闭 Android USB 串口状态流异常: $e');
     }
   }
 }

@@ -11,6 +11,8 @@ import 'package:hmi_host/features/hmi/hmi_session_frame.dart';
 class _FakeSerialTransport implements SerialTransport {
   final StreamController<Uint8List> _incoming =
       StreamController<Uint8List>.broadcast();
+  final StreamController<SerialConnectionState> _connectionStates =
+      StreamController<SerialConnectionState>.broadcast();
   bool _connected = true;
   Future<void> Function(Uint8List bytes)? onWrite;
   final List<Uint8List> writes = <Uint8List>[];
@@ -38,6 +40,7 @@ class _FakeSerialTransport implements SerialTransport {
     int flowControl = 0,
   }) async {
     _connected = true;
+    _connectionStates.add(SerialConnectionState.connected);
     lastPortName = portName;
     lastBaudRate = baudRate;
     lastDataBits = dataBits;
@@ -49,10 +52,14 @@ class _FakeSerialTransport implements SerialTransport {
   @override
   Future<void> disconnect() async {
     _connected = false;
+    _connectionStates.add(SerialConnectionState.disconnected);
   }
 
   @override
   Stream<Uint8List> get incomingBytes => _incoming.stream;
+
+  @override
+  Stream<SerialConnectionState> get connectionStates => _connectionStates.stream;
 
   @override
   bool get isConnected => _connected;
@@ -64,6 +71,7 @@ class _FakeSerialTransport implements SerialTransport {
   }
 
   Future<void> dispose() async {
+    await _connectionStates.close();
     await _incoming.close();
   }
 }
@@ -304,6 +312,92 @@ void main() {
     expect(controller.sessionState, HmiSessionClientState.degraded);
     expect(controller.sessionHandshakeReady, isTrue);
     expect(controller.sessionQuickControlReady, isTrue);
+
+    controller.dispose();
+    await transportA.dispose();
+    await transportB.dispose();
+  });
+
+  test('端口 B 断连事件会立即清空 Session 状态', () async {
+    final transportA = _FakeSerialTransport();
+    final transportB = _FakeSerialTransport();
+    final controller = HmiController(transportA, transportB: transportB);
+
+    transportB.onWrite = (bytes) async {
+      final frame = HmiSessionFrame.tryDecode(bytes.toList());
+      if (frame == null) {
+        return;
+      }
+      switch (frame.command) {
+        case HmiSessionCommand.hello:
+          transportB.emit(
+            _sessionResponseFrame(
+              sequence: frame.sequence,
+              command: HmiSessionCommand.hello,
+              payload: <int>[0x00, 0x01],
+            ),
+          );
+        case HmiSessionCommand.deviceInfo:
+          transportB.emit(
+            _sessionResponseFrame(
+              sequence: frame.sequence,
+              command: HmiSessionCommand.deviceInfo,
+              payload: <int>[0x00, 0x02, 0x00, 0x00, 0x00],
+            ),
+          );
+        case HmiSessionCommand.getGroupList:
+          transportB.emit(
+            _sessionResponseFrame(
+              sequence: frame.sequence,
+              command: HmiSessionCommand.getGroupList,
+              payload: <int>[0x00, 0x00, 0x00, 0x00],
+            ),
+          );
+        case HmiSessionCommand.getParamList:
+          transportB.emit(
+            _sessionResponseFrame(
+              sequence: frame.sequence,
+              command: HmiSessionCommand.getParamList,
+              payload: <int>[0x00, 0x00, 0x00, 0x00],
+            ),
+          );
+        default:
+          break;
+      }
+    };
+
+    await controller.syncSessionCatalog();
+    expect(controller.sessionHandshakeReady, isTrue);
+
+    await transportB.disconnect();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.sessionHandshakeReady, isFalse);
+    expect(controller.sessionState, HmiSessionClientState.disconnected);
+    expect(controller.sessionQuickControlReady, isFalse);
+
+    controller.dispose();
+    await transportA.dispose();
+    await transportB.dispose();
+  });
+
+  test('端口 B 断连后会清理半包缓存，避免旧数据污染后续会话', () async {
+    final transportA = _FakeSerialTransport();
+    final transportB = _FakeSerialTransport();
+    final controller = HmiController(transportA, transportB: transportB);
+
+    final frame = _sessionLogFrame('SESSION_OK');
+    final splitAt = frame.length ~/ 2;
+    transportB.emit(frame.sublist(0, splitAt));
+    await Future<void>.delayed(Duration.zero);
+
+    await transportB.disconnect();
+    await Future<void>.delayed(Duration.zero);
+
+    transportB.emit(frame.sublist(splitAt));
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.logs, isEmpty);
 
     controller.dispose();
     await transportA.dispose();

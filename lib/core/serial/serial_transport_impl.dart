@@ -78,6 +78,10 @@ class SerialTransportImpl implements SerialTransport {
   bool get isConnected => _delegate.isConnected;
 
   @override
+  Stream<SerialConnectionState> get connectionStates =>
+      _delegate.connectionStates;
+
+  @override
   Stream<Uint8List> get incomingBytes => _delegate.incomingBytes;
 
   @override

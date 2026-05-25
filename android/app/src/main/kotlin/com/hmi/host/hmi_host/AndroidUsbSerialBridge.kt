@@ -19,6 +19,8 @@ import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 private const val METHOD_CHANNEL_NAME = "hmi_host/android_usb_serial/methods"
 private const val EVENT_CHANNEL_NAME = "hmi_host/android_usb_serial/events"
@@ -60,6 +62,7 @@ class AndroidUsbSerialBridge(
     private val methodChannel = MethodChannel(messenger, METHOD_CHANNEL_NAME)
     private val eventChannel = EventChannel(messenger, EVENT_CHANNEL_NAME)
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val writeExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val sessions = mutableMapOf<Int, Session>()
     private val pendingConnects = mutableMapOf<Int, PendingConnect>()
     private var eventSink: EventChannel.EventSink? = null
@@ -116,6 +119,7 @@ class AndroidUsbSerialBridge(
         } catch (_: IllegalArgumentException) {
             // 忽略重复反注册。
         }
+        writeExecutor.shutdownNow()
     }
 
     private fun registerReceivers() {
@@ -185,6 +189,11 @@ class AndroidUsbSerialBridge(
             return
         }
 
+        cancelPendingConnect(
+            transportId,
+            errorCode = "connect_replaced",
+            message = "新的连接请求已覆盖旧请求",
+        )
         closeSession(transportId, notifyClosed = false)
 
         val descriptor =
@@ -212,7 +221,7 @@ class AndroidUsbSerialBridge(
                 result = result,
             )
         if (!usbManager.hasPermission(device)) {
-            pendingConnects[device.deviceId] = pending
+            pendingConnects[transportId] = pending
             usbManager.requestPermission(device, buildPermissionIntent(device.deviceId))
             return
         }
@@ -240,12 +249,21 @@ class AndroidUsbSerialBridge(
         if (device == null) {
             return
         }
-        val pending = pendingConnects.remove(device.deviceId) ?: return
-        if (!granted) {
-            pending.result.error("permission_denied", "USB 权限被拒绝", null)
+        val pendingList =
+            pendingConnects.values
+                .filter { it.descriptor.deviceId == device.deviceId }
+                .toList()
+        if (pendingList.isEmpty()) {
             return
         }
-        openSession(device, pending)
+        pendingList.forEach { pendingConnects.remove(it.transportId) }
+        if (!granted) {
+            pendingList.forEach {
+                it.result.error("permission_denied", "USB 权限被拒绝", null)
+            }
+            return
+        }
+        pendingList.forEach { openSession(device, it) }
     }
 
     private fun openSession(device: UsbDevice, pending: PendingConnect) {
@@ -325,6 +343,7 @@ class AndroidUsbSerialBridge(
             result.error("invalid_args", "disconnect 缺少 transportId", null)
             return
         }
+        cancelPendingConnect(transportId, errorCode = "cancelled", message = "连接请求已取消")
         closeSession(transportId, notifyClosed = true)
         result.success(null)
     }
@@ -342,19 +361,33 @@ class AndroidUsbSerialBridge(
                     result.error("not_connected", "串口未连接", null)
                     return
                 }
-        try {
-            // SerialInputOutputManager 已接管读写线程时，发送必须复用其异步写队列，
-            // 否则和底层读线程并发直调 port.write(...) 容易触发链路异常并被误判为断开。
-            session.ioManager.writeAsync(bytes)
-            result.success(bytes.size)
-        } catch (e: Exception) {
-            closeSession(transportId, notifyClosed = true)
-            result.error("write_failed", e.message ?: "USB 串口写入失败", null)
+        writeExecutor.execute {
+            try {
+                // 官方示例采用“事件驱动读 + 直接 port.write(...)”组合。
+                // 这里把写入串行化到单线程，避免 Flutter 主线程阻塞，也避免多次写入交错。
+                synchronized(session.port) {
+                    session.port.write(bytes, USB_WRITE_TIMEOUT_MS)
+                }
+                mainHandler.post { result.success(bytes.size) }
+            } catch (e: Exception) {
+                closeSession(transportId, notifyClosed = true)
+                mainHandler.post {
+                    result.error("write_failed", e.message ?: "USB 串口写入失败", null)
+                }
+            }
         }
     }
 
     private fun handleDeviceDetached(intent: Intent) {
         val device = intent.getParcelableExtraCompat<UsbDevice>(UsbManager.EXTRA_DEVICE) ?: return
+        val pendingList =
+            pendingConnects.values
+                .filter { it.descriptor.deviceId == device.deviceId }
+                .toList()
+        pendingList.forEach {
+            pendingConnects.remove(it.transportId)
+            it.result.error("detached", "USB 设备已断开", null)
+        }
         val affected =
             sessions.values
                 .filter { it.deviceId == device.deviceId }
@@ -368,6 +401,15 @@ class AndroidUsbSerialBridge(
             )
             closeSession(transportId, notifyClosed = false)
         }
+    }
+
+    private fun cancelPendingConnect(
+        transportId: Int,
+        errorCode: String,
+        message: String,
+    ) {
+        val pending = pendingConnects.remove(transportId) ?: return
+        pending.result.error(errorCode, message, null)
     }
 
     private fun closeSession(transportId: Int, notifyClosed: Boolean) {

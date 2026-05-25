@@ -144,6 +144,10 @@ class HmiSessionFrame {
 class HmiSessionFrameDecoder {
   final List<int> _buffer = <int>[];
 
+  void reset() {
+    _buffer.clear();
+  }
+
   List<HmiSessionFrame> pushBytes(Iterable<int> bytes) {
     final frames = <HmiSessionFrame>[];
     for (final byte in bytes) {
