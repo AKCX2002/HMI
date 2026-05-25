@@ -238,7 +238,7 @@ void main() {
     await transportB.dispose();
   });
 
-  testWidgets('可通过自定义波特率对话框写入新值', (WidgetTester tester) async {
+  testWidgets('可直接在波特率控件中输入新值', (WidgetTester tester) async {
     final transportA = _FakeSerialTransport();
     final transportB = _FakeSerialTransport();
     final controller = HmiController(transportA, transportB: transportB);
@@ -247,12 +247,8 @@ void main() {
     await tester.pumpWidget(app);
     await tester.pump();
 
-    await tester.tap(find.byTooltip('自定义波特率').first);
-    await tester.pumpAndSettle();
-
-    expect(find.text('自定义波特率'), findsOneWidget);
-    await tester.enterText(find.byType(TextField), '250000');
-    await tester.tap(find.text('确定'));
+    await tester.enterText(find.byType(TextFormField).first, '250000');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
 
     expect(controller.portAConfig.baudRate, 250000);

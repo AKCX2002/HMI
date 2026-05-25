@@ -764,28 +764,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
           onChanged: canEdit ? (v) => onPortChanged(v) : null,
         );
 
-        final baudDropdown = DropdownButtonFormField<int>(
-          initialValue: baudRate,
-          isExpanded: true,
-          decoration: _miniInputDeco('波特率'),
-          dropdownColor: const Color(0xFF122B4D),
-          style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 11),
-          isDense: true,
-          items: HmiPortConfig.baudRateOptionsFor(baudRate)
-              .map(
-                (v) => DropdownMenuItem<int>(
-                  value: v,
-                  child: Text('$v', style: const TextStyle(fontSize: 11)),
-                ),
-              )
-              .toList(),
-          onChanged: canEdit ? (v) => onBaudRateChanged(v ?? 9600) : null,
-        );
-
         final baudControl = _buildMiniBaudControl(
           baudRate: baudRate,
           canEdit: canEdit,
-          dropdown: baudDropdown,
           onBaudRateChanged: onBaudRateChanged,
         );
 
@@ -915,125 +896,17 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   Widget _buildMiniBaudControl({
     required int baudRate,
     required bool canEdit,
-    required Widget dropdown,
     required ValueChanged<int> onBaudRateChanged,
   }) {
-    return Row(
-      children: <Widget>[
-        Expanded(child: dropdown),
-        const SizedBox(width: 4),
-        Tooltip(
-          message: '自定义波特率',
-          child: SizedBox(
-            height: 30,
-            width: 30,
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF375A7F),
-                foregroundColor: Colors.white,
-                disabledBackgroundColor: const Color(0xFF445E78),
-                padding: EdgeInsets.zero,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(6),
-                ),
-              ),
-              onPressed: canEdit
-                  ? () async {
-                      final custom = await _showCustomBaudRateDialog(
-                        currentValue: baudRate,
-                        title: '自定义波特率',
-                      );
-                      if (custom != null) {
-                        onBaudRateChanged(custom);
-                      }
-                    }
-                  : null,
-              child: Text('自', style: GoogleFonts.ibmPlexSans(fontSize: 10)),
-            ),
-          ),
-        ),
-      ],
+    return _InlineBaudRateField(
+      value: baudRate,
+      canEdit: canEdit,
+      fontSize: 11,
+      buttonSize: const Size(30, 30),
+      spacing: 4,
+      decoration: _miniInputDeco('波特率'),
+      onChanged: onBaudRateChanged,
     );
-  }
-
-  Future<int?> _showCustomBaudRateDialog({
-    required int currentValue,
-    required String title,
-  }) async {
-    var textValue = '$currentValue';
-    var errorText = '';
-    final result = await showDialog<int>(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setLocalState) {
-            return AlertDialog(
-              backgroundColor: const Color(0xFF0D1A30),
-              title: Text(
-                title,
-                style: GoogleFonts.ibmPlexSans(color: const Color(0xFFD7E8FF)),
-              ),
-              content: SizedBox(
-                width: 320,
-                child: TextFormField(
-                  initialValue: textValue,
-                  autofocus: true,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: <TextInputFormatter>[
-                    FilteringTextInputFormatter.digitsOnly,
-                  ],
-                  style: const TextStyle(color: Color(0xFFD7E8FF)),
-                  decoration: InputDecoration(
-                    labelText:
-                        '范围 ${HmiPortConfig.minCustomBaudRate}-${HmiPortConfig.maxCustomBaudRate}',
-                    labelStyle: const TextStyle(
-                      color: Color(0xFFA6C5EA),
-                      fontSize: 12,
-                    ),
-                    errorText: errorText.isEmpty ? null : errorText,
-                  ),
-                  onChanged: (value) => textValue = value,
-                  onSubmitted: (_) {
-                    final value = int.tryParse(textValue.trim());
-                    if (value == null ||
-                        !HmiPortConfig.isValidBaudRate(value)) {
-                      setLocalState(() {
-                        errorText =
-                            '请输入 ${HmiPortConfig.minCustomBaudRate}-${HmiPortConfig.maxCustomBaudRate} 的整数';
-                      });
-                      return;
-                    }
-                    Navigator.of(ctx).pop(value);
-                  },
-                ),
-              ),
-              actions: <Widget>[
-                TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(),
-                  child: const Text('取消'),
-                ),
-                FilledButton(
-                  onPressed: () {
-                    final value = int.tryParse(textValue.trim());
-                    if (value == null ||
-                        !HmiPortConfig.isValidBaudRate(value)) {
-                      setLocalState(() {
-                        errorText =
-                            '请输入 ${HmiPortConfig.minCustomBaudRate}-${HmiPortConfig.maxCustomBaudRate} 的整数';
-                      });
-                      return;
-                    }
-                    Navigator.of(ctx).pop(value);
-                  },
-                  child: const Text('确定'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-    return result;
   }
 
   /// ── 端口 A 面板：左协议 (USART3 / 20B 主控协议) ──
@@ -3653,6 +3526,145 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
         borderSide: const BorderSide(color: Color(0xFF52B3FF)),
         borderRadius: BorderRadius.circular(8),
       ),
+    );
+  }
+}
+
+class _InlineBaudRateField extends StatefulWidget {
+  const _InlineBaudRateField({
+    required this.value,
+    required this.canEdit,
+    required this.fontSize,
+    required this.buttonSize,
+    required this.spacing,
+    required this.decoration,
+    required this.onChanged,
+  });
+
+  final int value;
+  final bool canEdit;
+  final double fontSize;
+  final Size buttonSize;
+  final double spacing;
+  final InputDecoration decoration;
+  final ValueChanged<int> onChanged;
+
+  @override
+  State<_InlineBaudRateField> createState() => _InlineBaudRateFieldState();
+}
+
+class _InlineBaudRateFieldState extends State<_InlineBaudRateField> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: '${widget.value}');
+  }
+
+  @override
+  void didUpdateWidget(covariant _InlineBaudRateField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value &&
+        _controller.text != '${widget.value}') {
+      _controller.text = '${widget.value}';
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _commitValue() {
+    final parsed = int.tryParse(_controller.text.trim());
+    if (parsed != null && HmiPortConfig.isValidBaudRate(parsed)) {
+      if (parsed != widget.value) {
+        widget.onChanged(parsed);
+      }
+      _controller.text = '$parsed';
+      return;
+    }
+    _controller.text = '${widget.value}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: TextFormField(
+            controller: _controller,
+            enabled: widget.canEdit,
+            keyboardType: TextInputType.number,
+            inputFormatters: <TextInputFormatter>[
+              FilteringTextInputFormatter.digitsOnly,
+            ],
+            style: TextStyle(
+              color: const Color(0xFFD7E8FF),
+              fontSize: widget.fontSize,
+            ),
+            decoration: widget.decoration.copyWith(
+              helperText:
+                  '${HmiPortConfig.minCustomBaudRate}-${HmiPortConfig.maxCustomBaudRate}',
+              helperStyle: TextStyle(
+                color: const Color(0x667DB5FF),
+                fontSize: widget.fontSize - 2,
+              ),
+            ),
+            onFieldSubmitted: (_) => _commitValue(),
+            onEditingComplete: _commitValue,
+          ),
+        ),
+        SizedBox(width: widget.spacing),
+        Tooltip(
+          message: '选择预设波特率',
+          child: PopupMenuButton<int>(
+            enabled: widget.canEdit,
+            tooltip: '选择预设波特率',
+            color: const Color(0xFF122B4D),
+            onSelected: (value) {
+              _controller.text = '$value';
+              _commitValue();
+            },
+            itemBuilder: (context) {
+              return HmiPortConfig.supportedBaudRates
+                  .map(
+                    (value) => PopupMenuItem<int>(
+                      value: value,
+                      child: Text(
+                        '$value',
+                        style: TextStyle(
+                          color: const Color(0xFFD7E8FF),
+                          fontSize: widget.fontSize,
+                        ),
+                      ),
+                    ),
+                  )
+                  .toList();
+            },
+            child: Container(
+              width: widget.buttonSize.width,
+              height: widget.buttonSize.height,
+              decoration: BoxDecoration(
+                color: widget.canEdit
+                    ? const Color(0xFF375A7F)
+                    : const Color(0xFF445E78),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                '预',
+                style: GoogleFonts.ibmPlexSans(
+                  color: Colors.white,
+                  fontSize: widget.fontSize - 1,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
