@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import '../../core/protocol/crc_algorithm.dart';
 import '../../util/log_exporter.dart';
 import 'hmi_controller.dart';
 import 'hmi_protocol.dart';
@@ -605,17 +604,11 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
         baudRate: portA
             ? controller.portAConfig.baudRate
             : controller.portBConfig.baudRate,
-        crcAlgorithm: portA
-            ? controller.portAConfig.crcAlgorithm
-            : controller.portBConfig.crcAlgorithm,
         canEdit: portA ? !controller.isConnectedA : !controller.isConnectedB,
         onPortChanged: portA ? controller.setPortA : controller.setPortB,
         onBaudRateChanged: portA
             ? controller.setBaudRateA
             : controller.setBaudRateB,
-        onCrcChanged: portA
-            ? controller.setCrcAlgorithmA
-            : controller.setCrcAlgorithmB,
         onRefresh: portA ? controller.refreshPortsA : controller.refreshPortsB,
         onConnect: portA ? controller.connectPortA : controller.connectPortB,
         onDisconnect: portA
@@ -644,11 +637,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
             ports: controller.portsA,
             selectedPort: controller.portAConfig.portName,
             baudRate: controller.portAConfig.baudRate,
-            crcAlgorithm: controller.portAConfig.crcAlgorithm,
             canEdit: !controller.isConnectedA,
             onPortChanged: (v) => controller.setPortA(v),
             onBaudRateChanged: (v) => controller.setBaudRateA(v),
-            onCrcChanged: (v) => controller.setCrcAlgorithmA(v),
             onRefresh: controller.refreshPortsA,
             onConnect: controller.connectPortA,
             onDisconnect: controller.disconnectPortA,
@@ -659,11 +650,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
             ports: controller.portsB,
             selectedPort: controller.portBConfig.portName,
             baudRate: controller.portBConfig.baudRate,
-            crcAlgorithm: controller.portBConfig.crcAlgorithm,
             canEdit: !controller.isConnectedB,
             onPortChanged: (v) => controller.setPortB(v),
             onBaudRateChanged: (v) => controller.setBaudRateB(v),
-            onCrcChanged: (v) => controller.setCrcAlgorithmB(v),
             onRefresh: controller.refreshPortsB,
             onConnect: controller.connectPortB,
             onDisconnect: controller.disconnectPortB,
@@ -692,19 +681,17 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     required List<String> ports,
     required String? selectedPort,
     required int baudRate,
-    required CrcAlgorithm crcAlgorithm,
     required bool canEdit,
     required ValueChanged<String?> onPortChanged,
     required ValueChanged<int> onBaudRateChanged,
-    required ValueChanged<CrcAlgorithm> onCrcChanged,
     required VoidCallback onRefresh,
     required VoidCallback onConnect,
     required VoidCallback onDisconnect,
   }) {
     return LayoutBuilder(
       builder: (_, constraints) {
-        final veryCompact = constraints.maxWidth < 420;
-        final somewhatCompact = constraints.maxWidth < 580;
+        final veryCompact = constraints.maxWidth < 460;
+        final somewhatCompact = constraints.maxWidth < 700;
 
         // ── 控件构建 ──
         final labelWidget = Container(
@@ -778,6 +765,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
 
         final baudDropdown = DropdownButtonFormField<int>(
           initialValue: baudRate,
+          isExpanded: true,
           decoration: _miniInputDeco('波特率'),
           dropdownColor: const Color(0xFF122B4D),
           style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 11),
@@ -791,28 +779,6 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
               )
               .toList(),
           onChanged: canEdit ? (v) => onBaudRateChanged(v ?? 9600) : null,
-        );
-
-        final crcDropdown = DropdownButtonFormField<CrcAlgorithm>(
-          initialValue: crcAlgorithm,
-          decoration: _miniInputDeco('CRC'),
-          dropdownColor: const Color(0xFF122B4D),
-          style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 11),
-          isDense: true,
-          items: CrcAlgorithm.values
-              .map(
-                (a) => DropdownMenuItem<CrcAlgorithm>(
-                  value: a,
-                  child: Text(
-                    a == CrcAlgorithm.modbus ? 'Modbus' : 'DGUS',
-                    style: const TextStyle(fontSize: 11),
-                  ),
-                ),
-              )
-              .toList(),
-          onChanged: canEdit
-              ? (CrcAlgorithm? v) => onCrcChanged(v ?? CrcAlgorithm.modbus)
-              : null,
         );
 
         final scanBtn = Tooltip(
@@ -863,7 +829,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
 
         // ── 布局策略 ──
         if (veryCompact) {
-          // 三行：标签+按钮 / 串口+波特率 / CRC
+          // 三行：标签+按钮 / 串口 / 波特率
           return Column(
             children: <Widget>[
               Row(
@@ -876,53 +842,43 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                 ],
               ),
               const SizedBox(height: 4),
-              Row(
-                children: <Widget>[
-                  Expanded(flex: 3, child: portDropdown),
-                  const SizedBox(width: 4),
-                  Expanded(flex: 2, child: baudDropdown),
-                ],
-              ),
+              Row(children: <Widget>[Expanded(child: portDropdown)]),
               const SizedBox(height: 4),
-              Row(children: <Widget>[Expanded(child: crcDropdown)]),
+              Row(children: <Widget>[Expanded(child: baudDropdown)]),
             ],
           );
         } else if (somewhatCompact) {
-          // 两行：标签+串口+波特率 / CRC+按钮
+          // 两行：标签+按钮 / 串口+波特率
           return Column(
             children: <Widget>[
               Row(
                 children: <Widget>[
                   labelWidget,
-                  const SizedBox(width: 4),
-                  Expanded(flex: 3, child: portDropdown),
-                  const SizedBox(width: 4),
-                  Expanded(flex: 2, child: baudDropdown),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Row(
-                children: <Widget>[
-                  Expanded(child: crcDropdown),
-                  const SizedBox(width: 4),
+                  const Spacer(),
                   scanBtn,
                   const SizedBox(width: 3),
                   connBtn,
                 ],
               ),
+              const SizedBox(height: 4),
+              Row(
+                children: <Widget>[
+                  Expanded(flex: 5, child: portDropdown),
+                  const SizedBox(width: 4),
+                  Expanded(flex: 2, child: baudDropdown),
+                ],
+              ),
             ],
           );
         } else {
-          // 一行：标签 + 串口 + 波特率 + CRC + 按钮
+          // 一行：标签 + 串口 + 波特率 + 按钮
           return Row(
             children: <Widget>[
               labelWidget,
               const SizedBox(width: 4),
-              Expanded(flex: 3, child: portDropdown),
+              Expanded(flex: 5, child: portDropdown),
               const SizedBox(width: 4),
               Expanded(flex: 2, child: baudDropdown),
-              const SizedBox(width: 4),
-              Expanded(flex: 2, child: crcDropdown),
               const SizedBox(width: 4),
               scanBtn,
               const SizedBox(width: 3),
@@ -2018,21 +1974,13 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                         _paramsLoading,
                         () => _readAllParams(controller),
                       ),
-                      _opBtn(
-                        '保存EEPROM',
-                        false,
-                        () => _saveParams(controller),
-                      ),
+                      _opBtn('保存EEPROM', false, () => _saveParams(controller)),
                       _opBtn(
                         '加载EEPROM',
                         false,
                         () => _loadParams(controller, 0),
                       ),
-                      _opBtn(
-                        '恢复默认',
-                        false,
-                        () => _loadParams(controller, 1),
-                      ),
+                      _opBtn('恢复默认', false, () => _loadParams(controller, 1)),
                     ],
                   );
                 },
@@ -2168,11 +2116,23 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
             spacing: 8,
             runSpacing: 8,
             children: <Widget>[
-              _miniBtn('启动', connected, () => controller.sessionControlRunState(1)),
-              _miniBtn('停机', connected, () => controller.sessionControlRunState(0)),
+              _miniBtn(
+                '启动',
+                connected,
+                () => controller.sessionControlRunState(1),
+              ),
+              _miniBtn(
+                '停机',
+                connected,
+                () => controller.sessionControlRunState(0),
+              ),
               _miniBtn('出袋', connected, () => controller.sessionTriggerBag()),
               _miniBtn('封口', connected, () => controller.sessionTriggerSeal()),
-              _miniBtn('投料', connected, () => controller.sessionTriggerDeliver()),
+              _miniBtn(
+                '投料',
+                connected,
+                () => controller.sessionTriggerDeliver(),
+              ),
               _miniBtn('清标志', connected, () => controller.sessionClearFlag(1)),
               _miniBtn('复位', connected, () => controller.sessionResetFault(0)),
             ],
@@ -2574,8 +2534,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
         padding: const EdgeInsets.all(12),
         children: <Widget>[
           for (final group in params.entries) ...[
-            _buildParamGroup(
-                controller, group.key, group.value),
+            _buildParamGroup(controller, group.key, group.value),
             const SizedBox(height: 8),
           ],
         ],
@@ -2674,11 +2633,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   }
 
   /// 单个参数行
-  Widget _buildParamRow(
-    HmiController controller,
-    HmiSessionParamDef param,
-  ) {
-    final value = controller.sessionParamValues[param.id] ?? _paramValues[param.id];
+  Widget _buildParamRow(HmiController controller, HmiSessionParamDef param) {
+    final value =
+        controller.sessionParamValues[param.id] ?? _paramValues[param.id];
     final editor = _paramEditors.putIfAbsent(
       param.id,
       () => TextEditingController(text: value?.toString() ?? ''),
@@ -2821,10 +2778,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   }
 
   /// 读取单个参数
-  Future<void> _readParam(
-    HmiController controller,
-    int paramId,
-  ) async {
+  Future<void> _readParam(HmiController controller, int paramId) async {
     final value = await controller.sendParamRead(
       nodeAddress: 0xFA,
       paramId: paramId,
@@ -2905,9 +2859,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
       if (mounted) {
         setState(() {
           _paramsLoading = false;
-          _paramsStatus = total > 0
-              ? '读取完成: $count/$total 个参数'
-              : '读取完成: 无参数';
+          _paramsStatus = total > 0 ? '读取完成: $count/$total 个参数' : '读取完成: 无参数';
         });
       }
     } catch (e) {
@@ -2929,10 +2881,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   }
 
   /// 加载/恢复参数
-  Future<void> _loadParams(
-    HmiController controller,
-    int action,
-  ) async {
+  Future<void> _loadParams(HmiController controller, int action) async {
     // 恢复默认值需要确认
     if (action == 1) {
       final confirmed = await showDialog<bool>(

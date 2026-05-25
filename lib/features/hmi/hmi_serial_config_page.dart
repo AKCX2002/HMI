@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import '../../core/protocol/crc_algorithm.dart';
 import 'hmi_controller.dart';
 import 'hmi_port_config.dart';
 
 /// USART 串口配置子页面。
 ///
 /// 集中管理端口 A (USART3) 和端口 B (USART1) 的全部串口参数：
-/// - 端口名称、波特率、数据位、停止位、校验位、流控制、CRC 算法
+/// - 端口名称、波特率、数据位、停止位、校验位、流控制
 /// - 连接/断开、扫描刷新
 class HmiSerialConfigPage extends StatefulWidget {
   const HmiSerialConfigPage({super.key, required this.controller});
@@ -21,7 +20,16 @@ class HmiSerialConfigPage extends StatefulWidget {
 
 class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
   static const List<int> _kBaudRates = <int>[
-    1200, 2400, 4800, 9600, 14400, 19200, 38400, 57600, 115200, 230400,
+    1200,
+    2400,
+    4800,
+    9600,
+    14400,
+    19200,
+    38400,
+    57600,
+    115200,
+    230400,
   ];
 
   @override
@@ -48,7 +56,6 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
                 onStopBitsChanged: c.setStopBitsA,
                 onParityChanged: c.setParityA,
                 onFlowControlChanged: c.setFlowControlA,
-                onCrcChanged: c.setCrcAlgorithmA,
                 onRefresh: c.refreshPortsA,
                 onConnect: c.connectPortA,
                 onDisconnect: c.disconnectPortA,
@@ -67,7 +74,6 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
                 onStopBitsChanged: c.setStopBitsB,
                 onParityChanged: c.setParityB,
                 onFlowControlChanged: c.setFlowControlB,
-                onCrcChanged: c.setCrcAlgorithmB,
                 onRefresh: c.refreshPortsB,
                 onConnect: c.connectPortB,
                 onDisconnect: c.disconnectPortB,
@@ -103,7 +109,6 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
     required ValueChanged<HmiStopBits> onStopBitsChanged,
     required ValueChanged<HmiParity> onParityChanged,
     required ValueChanged<HmiFlowControl> onFlowControlChanged,
-    required ValueChanged<CrcAlgorithm> onCrcChanged,
     required VoidCallback onRefresh,
     required VoidCallback onConnect,
     required VoidCallback onDisconnect,
@@ -114,7 +119,9 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
         color: const Color(0xFF0D1A30),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: isConnected ? const Color(0xFF2E7D32) : const Color(0xFF233A62),
+          color: isConnected
+              ? const Color(0xFF2E7D32)
+              : const Color(0xFF233A62),
         ),
       ),
       child: LayoutBuilder(
@@ -125,7 +132,13 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               // ── 状态栏 ──
-              _buildStatusBar(isConnected, config, onRefresh, onConnect, onDisconnect),
+              _buildStatusBar(
+                isConnected,
+                config,
+                onRefresh,
+                onConnect,
+                onDisconnect,
+              ),
               const SizedBox(height: 12),
               const Divider(color: Color(0xFF213D65), height: 1),
               const SizedBox(height: 12),
@@ -139,15 +152,30 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
                 ),
               ),
               const SizedBox(height: 8),
-              if (compact) ..._buildCompactConfigRows(
-                config, ports, canEdit, onPortChanged, onBaudRateChanged,
-                onDataBitsChanged, onStopBitsChanged, onParityChanged,
-                onFlowControlChanged, onCrcChanged,
-              ) else ..._buildWideConfigRows(
-                config, ports, canEdit, onPortChanged, onBaudRateChanged,
-                onDataBitsChanged, onStopBitsChanged, onParityChanged,
-                onFlowControlChanged, onCrcChanged,
-              ),
+              if (compact)
+                ..._buildCompactConfigRows(
+                  config,
+                  ports,
+                  canEdit,
+                  onPortChanged,
+                  onBaudRateChanged,
+                  onDataBitsChanged,
+                  onStopBitsChanged,
+                  onParityChanged,
+                  onFlowControlChanged,
+                )
+              else
+                ..._buildWideConfigRows(
+                  config,
+                  ports,
+                  canEdit,
+                  onPortChanged,
+                  onBaudRateChanged,
+                  onDataBitsChanged,
+                  onStopBitsChanged,
+                  onParityChanged,
+                  onFlowControlChanged,
+                ),
             ],
           );
         },
@@ -169,7 +197,9 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
           height: 10,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: isConnected ? const Color(0xFF4CAF50) : const Color(0xFFE53935),
+            color: isConnected
+                ? const Color(0xFF4CAF50)
+                : const Color(0xFFE53935),
           ),
         ),
         const SizedBox(width: 8),
@@ -181,7 +211,9 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: GoogleFonts.ibmPlexMono(
-              color: isConnected ? const Color(0xFF9AF9D3) : const Color(0xFFFF9595),
+              color: isConnected
+                  ? const Color(0xFF9AF9D3)
+                  : const Color(0xFFFF9595),
               fontSize: 11,
             ),
           ),
@@ -209,10 +241,7 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
                 isConnected ? const Color(0xFF9F2D2D) : const Color(0xFF2E7D32),
               ),
               onPressed: isConnected ? onDisconnect : onConnect,
-              child: Icon(
-                isConnected ? Icons.link_off : Icons.link,
-                size: 16,
-              ),
+              child: Icon(isConnected ? Icons.link_off : Icons.link, size: 16),
             ),
           ),
         ),
@@ -230,30 +259,64 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
     ValueChanged<HmiStopBits> onStopBitsChanged,
     ValueChanged<HmiParity> onParityChanged,
     ValueChanged<HmiFlowControl> onFlowControlChanged,
-    ValueChanged<CrcAlgorithm> onCrcChanged,
   ) {
     return <Widget>[
       Row(
         children: <Widget>[
-          Expanded(flex: 4, child: _buildPortDropdown(ports, config.portName, canEdit, onPortChanged)),
+          Expanded(
+            flex: 4,
+            child: _buildPortDropdown(
+              ports,
+              config.portName,
+              canEdit,
+              onPortChanged,
+            ),
+          ),
           const SizedBox(width: 8),
-          Expanded(flex: 2, child: _buildBaudDropdown(config.baudRate, canEdit, onBaudRateChanged)),
+          Expanded(
+            flex: 2,
+            child: _buildBaudDropdown(
+              config.baudRate,
+              canEdit,
+              onBaudRateChanged,
+            ),
+          ),
           const SizedBox(width: 8),
-          Expanded(flex: 1, child: _buildDataBitsDropdown(config.dataBits, canEdit, onDataBitsChanged)),
+          Expanded(
+            flex: 1,
+            child: _buildDataBitsDropdown(
+              config.dataBits,
+              canEdit,
+              onDataBitsChanged,
+            ),
+          ),
           const SizedBox(width: 8),
-          Expanded(flex: 1, child: _buildParityDropdown(config.parity, canEdit, onParityChanged)),
+          Expanded(
+            flex: 1,
+            child: _buildParityDropdown(
+              config.parity,
+              canEdit,
+              onParityChanged,
+            ),
+          ),
           const SizedBox(width: 8),
-          Expanded(flex: 1, child: _buildStopBitsDropdown(config.stopBits, canEdit, onStopBitsChanged)),
+          Expanded(
+            flex: 1,
+            child: _buildStopBitsDropdown(
+              config.stopBits,
+              canEdit,
+              onStopBitsChanged,
+            ),
+          ),
           const SizedBox(width: 8),
-          Expanded(flex: 2, child: _buildFlowDropdown(config.flowControl, canEdit, onFlowControlChanged)),
-        ],
-      ),
-      const SizedBox(height: 8),
-      Row(
-        children: <Widget>[
-          Expanded(flex: 2, child: _buildCrcDropdown(config.crcAlgorithm, canEdit, onCrcChanged)),
-          const SizedBox(width: 8),
-          const Spacer(flex: 8),
+          Expanded(
+            flex: 2,
+            child: _buildFlowDropdown(
+              config.flowControl,
+              canEdit,
+              onFlowControlChanged,
+            ),
+          ),
         ],
       ),
     ];
@@ -269,32 +332,66 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
     ValueChanged<HmiStopBits> onStopBitsChanged,
     ValueChanged<HmiParity> onParityChanged,
     ValueChanged<HmiFlowControl> onFlowControlChanged,
-    ValueChanged<CrcAlgorithm> onCrcChanged,
   ) {
     return <Widget>[
       Row(
         children: <Widget>[
-          Expanded(child: _buildPortDropdown(ports, config.portName, canEdit, onPortChanged)),
+          Expanded(
+            child: _buildPortDropdown(
+              ports,
+              config.portName,
+              canEdit,
+              onPortChanged,
+            ),
+          ),
           const SizedBox(width: 8),
-          Expanded(child: _buildBaudDropdown(config.baudRate, canEdit, onBaudRateChanged)),
+          Expanded(
+            child: _buildBaudDropdown(
+              config.baudRate,
+              canEdit,
+              onBaudRateChanged,
+            ),
+          ),
         ],
       ),
       const SizedBox(height: 8),
       Row(
         children: <Widget>[
-          Expanded(child: _buildDataBitsDropdown(config.dataBits, canEdit, onDataBitsChanged)),
+          Expanded(
+            child: _buildDataBitsDropdown(
+              config.dataBits,
+              canEdit,
+              onDataBitsChanged,
+            ),
+          ),
           const SizedBox(width: 8),
-          Expanded(child: _buildParityDropdown(config.parity, canEdit, onParityChanged)),
+          Expanded(
+            child: _buildParityDropdown(
+              config.parity,
+              canEdit,
+              onParityChanged,
+            ),
+          ),
           const SizedBox(width: 8),
-          Expanded(child: _buildStopBitsDropdown(config.stopBits, canEdit, onStopBitsChanged)),
+          Expanded(
+            child: _buildStopBitsDropdown(
+              config.stopBits,
+              canEdit,
+              onStopBitsChanged,
+            ),
+          ),
         ],
       ),
       const SizedBox(height: 8),
       Row(
         children: <Widget>[
-          Expanded(child: _buildFlowDropdown(config.flowControl, canEdit, onFlowControlChanged)),
-          const SizedBox(width: 8),
-          Expanded(child: _buildCrcDropdown(config.crcAlgorithm, canEdit, onCrcChanged)),
+          Expanded(
+            child: _buildFlowDropdown(
+              config.flowControl,
+              canEdit,
+              onFlowControlChanged,
+            ),
+          ),
         ],
       ),
     ];
@@ -337,7 +434,10 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
       items: <DropdownMenuItem<String?>>[
         const DropdownMenuItem<String?>(
           value: null,
-          child: Text('— 未选择 —', style: TextStyle(color: Color(0xFF888888), fontSize: 12)),
+          child: Text(
+            '— 未选择 —',
+            style: TextStyle(color: Color(0xFF888888), fontSize: 12),
+          ),
         ),
         ...ports.map(
           (p) => DropdownMenuItem<String?>(
@@ -368,10 +468,12 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
       style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
       isDense: true,
       items: _kBaudRates
-          .map((v) => DropdownMenuItem<int>(
-                value: v,
-                child: Text('$v', style: const TextStyle(fontSize: 12)),
-              ))
+          .map(
+            (v) => DropdownMenuItem<int>(
+              value: v,
+              child: Text('$v', style: const TextStyle(fontSize: 12)),
+            ),
+          )
           .toList(),
       onChanged: canEdit ? (v) => onChanged(v ?? 9600) : null,
     );
@@ -390,10 +492,12 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
       style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
       isDense: true,
       items: HmiPortConfig.supportedDataBits
-          .map((v) => DropdownMenuItem<HmiDataBits>(
-                value: v,
-                child: Text(v.label, style: const TextStyle(fontSize: 12)),
-              ))
+          .map(
+            (v) => DropdownMenuItem<HmiDataBits>(
+              value: v,
+              child: Text(v.label, style: const TextStyle(fontSize: 12)),
+            ),
+          )
           .toList(),
       onChanged: canEdit ? (v) => onChanged(v ?? HmiDataBits.bits8) : null,
     );
@@ -412,10 +516,12 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
       style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
       isDense: true,
       items: HmiStopBits.values
-          .map((v) => DropdownMenuItem<HmiStopBits>(
-                value: v,
-                child: Text(v.label, style: const TextStyle(fontSize: 12)),
-              ))
+          .map(
+            (v) => DropdownMenuItem<HmiStopBits>(
+              value: v,
+              child: Text(v.label, style: const TextStyle(fontSize: 12)),
+            ),
+          )
           .toList(),
       onChanged: canEdit ? (v) => onChanged(v ?? HmiStopBits.one) : null,
     );
@@ -434,10 +540,12 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
       style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
       isDense: true,
       items: HmiParity.values
-          .map((v) => DropdownMenuItem<HmiParity>(
-                value: v,
-                child: Text(v.label, style: const TextStyle(fontSize: 12)),
-              ))
+          .map(
+            (v) => DropdownMenuItem<HmiParity>(
+              value: v,
+              child: Text(v.label, style: const TextStyle(fontSize: 12)),
+            ),
+          )
           .toList(),
       onChanged: canEdit ? (v) => onChanged(v ?? HmiParity.none) : null,
     );
@@ -456,37 +564,14 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
       style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
       isDense: true,
       items: HmiFlowControl.values
-          .map((v) => DropdownMenuItem<HmiFlowControl>(
-                value: v,
-                child: Text(v.label, style: const TextStyle(fontSize: 12)),
-              ))
+          .map(
+            (v) => DropdownMenuItem<HmiFlowControl>(
+              value: v,
+              child: Text(v.label, style: const TextStyle(fontSize: 12)),
+            ),
+          )
           .toList(),
       onChanged: canEdit ? (v) => onChanged(v ?? HmiFlowControl.none) : null,
-    );
-  }
-
-  Widget _buildCrcDropdown(
-    CrcAlgorithm value,
-    bool canEdit,
-    ValueChanged<CrcAlgorithm> onChanged,
-  ) {
-    return DropdownButtonFormField<CrcAlgorithm>(
-      initialValue: value,
-      isExpanded: true,
-      decoration: _fieldDeco('CRC 算法'),
-      dropdownColor: const Color(0xFF122B4D),
-      style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
-      isDense: true,
-      items: CrcAlgorithm.values
-          .map((a) => DropdownMenuItem<CrcAlgorithm>(
-                value: a,
-                child: Text(
-                  a == CrcAlgorithm.modbus ? 'CRC16-Modbus' : 'DGUS',
-                  style: const TextStyle(fontSize: 12),
-                ),
-              ))
-          .toList(),
-      onChanged: canEdit ? (v) => onChanged(v ?? CrcAlgorithm.modbus) : null,
     );
   }
 

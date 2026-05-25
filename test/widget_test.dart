@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:typed_data';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,7 +9,8 @@ import 'package:hmi_host/features/hmi/hmi_session_frame.dart';
 import 'package:hmi_host/main.dart' show HmiHostApp;
 
 class _FakeSerialTransport implements SerialTransport {
-  _FakeSerialTransport({List<String>? ports}) : _ports = ports ?? const <String>['COM1'];
+  _FakeSerialTransport({List<String>? ports})
+    : _ports = ports ?? const <String>['COM1'];
 
   final StreamController<Uint8List> _incoming =
       StreamController<Uint8List>.broadcast();
@@ -155,7 +155,9 @@ void main() {
   testWidgets('超长 Android 串口名在窄布局下不触发溢出', (WidgetTester tester) async {
     const longPortName =
         'USB Serial Device with Very Long Android Friendly Name /dev/bus/usb/001/002';
-    final transportA = _FakeSerialTransport(ports: const <String>[longPortName]);
+    final transportA = _FakeSerialTransport(
+      ports: const <String>[longPortName],
+    );
     final transportB = _FakeSerialTransport();
     final controller = HmiController(transportA, transportB: transportB);
     await controller.refreshPortsA();
@@ -178,11 +180,39 @@ void main() {
     expect(
       portTextWidgets.any(
         (Text widget) =>
-            widget.maxLines == 1 &&
-            widget.overflow == TextOverflow.ellipsis,
+            widget.maxLines == 1 && widget.overflow == TextOverflow.ellipsis,
       ),
       isTrue,
     );
+    expect(tester.takeException(), isNull);
+
+    controller.dispose();
+    await transportA.dispose();
+    await transportB.dispose();
+  });
+
+  testWidgets('中等窄布局下隐藏 CRC 控件并为长串口名保留更多宽度', (WidgetTester tester) async {
+    const longPortName =
+        'USB Serial Device with Very Long Android Friendly Name /dev/bus/usb/001/002';
+    final transportA = _FakeSerialTransport(
+      ports: const <String>[longPortName],
+    );
+    final transportB = _FakeSerialTransport();
+    final controller = HmiController(transportA, transportB: transportB);
+    await controller.refreshPortsA();
+    controller.setPortA(longPortName);
+
+    tester.view.physicalSize = const Size(560, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final app = HmiHostApp(controller: controller);
+    await tester.pumpWidget(app);
+    await tester.pump();
+
+    expect(find.text('CRC'), findsNothing);
+    expect(find.text('DGUS'), findsNothing);
     expect(tester.takeException(), isNull);
 
     controller.dispose();
