@@ -12,6 +12,8 @@ class _FakeSerialTransport implements SerialTransport {
   final StreamController<Uint8List> _incoming =
       StreamController<Uint8List>.broadcast();
   bool _connected = true;
+  Future<void> Function(Uint8List bytes)? onWrite;
+  final List<Uint8List> writes = <Uint8List>[];
   String? lastPortName;
   int? lastBaudRate;
   int? lastDataBits;
@@ -56,7 +58,10 @@ class _FakeSerialTransport implements SerialTransport {
   bool get isConnected => _connected;
 
   @override
-  Future<void> write(Uint8List bytes) async {}
+  Future<void> write(Uint8List bytes) async {
+    writes.add(Uint8List.fromList(bytes));
+    await onWrite?.call(bytes);
+  }
 
   Future<void> dispose() async {
     await _incoming.close();
@@ -74,6 +79,19 @@ List<int> _sessionLogFrame(String text) {
     sequence: 1,
     command: HmiSessionCommand.logPush,
     payload: Uint8List.fromList(<int>[3, ...text.codeUnits]),
+  ).encode();
+}
+
+List<int> _sessionResponseFrame({
+  required int sequence,
+  required HmiSessionCommand command,
+  required List<int> payload,
+}) {
+  return HmiSessionFrame(
+    type: HmiSessionFrameType.response,
+    sequence: sequence,
+    command: command,
+    payload: Uint8List.fromList(payload),
   ).encode();
 }
 
@@ -176,6 +194,116 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     expect(controller.logs, isEmpty);
+
+    controller.dispose();
+    await transportA.dispose();
+    await transportB.dispose();
+  });
+
+  test('快捷控制在仅握手成功时即可发送业务命令', () async {
+    final transportA = _FakeSerialTransport();
+    final transportB = _FakeSerialTransport();
+    final controller = HmiController(transportA, transportB: transportB);
+
+    transportB.onWrite = (bytes) async {
+      final frame = HmiSessionFrame.tryDecode(bytes.toList());
+      expect(frame, isNotNull);
+      if (frame == null) {
+        return;
+      }
+      if (frame.command == HmiSessionCommand.hello) {
+        transportB.emit(
+          _sessionResponseFrame(
+            sequence: frame.sequence,
+            command: HmiSessionCommand.hello,
+            payload: <int>[0x00, 0x01],
+          ),
+        );
+      } else if (frame.command == HmiSessionCommand.controlRunState) {
+        transportB.emit(
+          _sessionResponseFrame(
+            sequence: frame.sequence,
+            command: HmiSessionCommand.controlRunState,
+            payload: <int>[0x00, 0x01, 0x00],
+          ),
+        );
+      }
+    };
+
+    final ok = await controller.sessionControlRunState(1);
+
+    expect(ok, isTrue);
+    expect(controller.sessionHandshakeReady, isTrue);
+    expect(controller.sessionQuickControlReady, isTrue);
+    expect(transportB.writes, hasLength(2));
+    expect(
+      HmiSessionFrame.tryDecode(transportB.writes[0].toList())?.command,
+      HmiSessionCommand.hello,
+    );
+    expect(
+      HmiSessionFrame.tryDecode(transportB.writes[1].toList())?.command,
+      HmiSessionCommand.controlRunState,
+    );
+
+    controller.dispose();
+    await transportA.dispose();
+    await transportB.dispose();
+  });
+
+  test('完整同步退化后仍保留快捷控制握手状态', () async {
+    final transportA = _FakeSerialTransport();
+    final transportB = _FakeSerialTransport();
+    final controller = HmiController(transportA, transportB: transportB);
+
+    transportB.onWrite = (bytes) async {
+      final frame = HmiSessionFrame.tryDecode(bytes.toList());
+      expect(frame, isNotNull);
+      if (frame == null) {
+        return;
+      }
+      switch (frame.command) {
+        case HmiSessionCommand.hello:
+          transportB.emit(
+            _sessionResponseFrame(
+              sequence: frame.sequence,
+              command: HmiSessionCommand.hello,
+              payload: <int>[0x00, 0x01],
+            ),
+          );
+        case HmiSessionCommand.deviceInfo:
+          transportB.emit(
+            _sessionResponseFrame(
+              sequence: frame.sequence,
+              command: HmiSessionCommand.deviceInfo,
+              payload: <int>[0x00, 0x02, 0x00, 0x00, 0x00],
+            ),
+          );
+        case HmiSessionCommand.getGroupList:
+          transportB.emit(
+            _sessionResponseFrame(
+              sequence: frame.sequence,
+              command: HmiSessionCommand.getGroupList,
+              payload: <int>[0x00, 0x00, 0x00, 0x00],
+            ),
+          );
+        case HmiSessionCommand.getParamList:
+          transportB.emit(
+            _sessionResponseFrame(
+              sequence: frame.sequence,
+              command: HmiSessionCommand.getParamList,
+              payload: <int>[0x00, 0x00, 0x00, 0x00],
+            ),
+          );
+        default:
+          break;
+      }
+    };
+
+    await controller.syncSessionCatalog();
+
+    expect(controller.sessionState, HmiSessionClientState.degraded);
+    expect(controller.sessionHandshakeReady, isTrue);
+    expect(controller.sessionQuickControlReady, isTrue);
 
     controller.dispose();
     await transportA.dispose();

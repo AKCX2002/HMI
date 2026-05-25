@@ -258,6 +258,7 @@ class HmiController extends ChangeNotifier {
   int _sessionSeq = 1;
   String _deviceName = '打包机';
   HmiSessionClientState _sessionState = HmiSessionClientState.disconnected;
+  bool _sessionHandshakeReady = false;
   bool _sessionSyncInProgress = false;
   int _sessionSubscriptionMask = 0;
   final List<HmiSessionGroupDef> _sessionGroups = <HmiSessionGroupDef>[];
@@ -286,6 +287,8 @@ class HmiController extends ChangeNotifier {
   String get deviceName => _deviceName;
   HmiRetryPolicy get retryPolicy => _retryPolicy;
   HmiSessionClientState get sessionState => _sessionState;
+  bool get sessionHandshakeReady => _sessionHandshakeReady;
+  bool get sessionQuickControlReady => isConnectedB && _sessionHandshakeReady;
   bool get sessionSyncInProgress => _sessionSyncInProgress;
   int get sessionSubscriptionMask => _sessionSubscriptionMask;
   List<HmiSessionGroupDef> get sessionGroups =>
@@ -470,7 +473,8 @@ class HmiController extends ChangeNotifier {
         parity: _portAConfig.parity.value,
         flowControl: _portAConfig.flowControl.value,
       );
-      _statusMessage = '端口 A 已连接: $port @ ${_portAConfig.baudRate}'
+      _statusMessage =
+          '端口 A 已连接: $port @ ${_portAConfig.baudRate}'
           ' ${_portAConfig.dataBits.label}${_portAConfig.parity.shortLabel}${_portAConfig.stopBits.label}';
       notifyListeners();
     } catch (error) {
@@ -500,7 +504,8 @@ class HmiController extends ChangeNotifier {
         parity: _portBConfig.parity.value,
         flowControl: _portBConfig.flowControl.value,
       );
-      _statusMessage = '端口 B 已连接: $port @ ${_portBConfig.baudRate}'
+      _statusMessage =
+          '端口 B 已连接: $port @ ${_portBConfig.baudRate}'
           ' ${_portBConfig.dataBits.label}${_portBConfig.parity.shortLabel}${_portBConfig.stopBits.label}';
       notifyListeners();
       unawaited(syncSessionCatalog());
@@ -831,7 +836,8 @@ class HmiController extends ChangeNotifier {
     );
     if (resp == null) return null;
     if (resp.payload.length < 7 || resp.payload[0] == 0) return null;
-    final value = resp.payload[3] |
+    final value =
+        resp.payload[3] |
         (resp.payload[4] << 8) |
         (resp.payload[5] << 16) |
         (resp.payload[6] << 24);
@@ -891,8 +897,36 @@ class HmiController extends ChangeNotifier {
 
   // ────────────── USART1 Session 控制命令 (0x30~0x37) ──────────────
 
+  Future<bool> _ensureSessionQuickControlReady() async {
+    if (!_transportB.isConnected) {
+      _resetSessionCache();
+      _statusMessage = '快捷控制失败: USART1未连接';
+      notifyListeners();
+      return false;
+    }
+    if (_sessionHandshakeReady) {
+      return true;
+    }
+
+    final hello = await _runSessionCommand(
+      command: HmiSessionCommand.hello,
+      label: 'Session重握手',
+    );
+    if (hello == null || hello.payload.length < 2 || hello.payload[0] != 0) {
+      _sessionHandshakeReady = false;
+      return false;
+    }
+
+    _sessionHandshakeReady = true;
+    notifyListeners();
+    return true;
+  }
+
   /// 启停控制。action: 0=停机, 1=启动。
   Future<bool> sessionControlRunState(int action) async {
+    if (!await _ensureSessionQuickControlReady()) {
+      return false;
+    }
     final resp = await _runSessionCommand(
       command: HmiSessionCommand.controlRunState,
       payload: <int>[action & 0xFF],
@@ -903,7 +937,13 @@ class HmiController extends ChangeNotifier {
 
   /// 出袋命令。action: 0=查询, 1=启动, 2=完成查询。
   /// clearDone: true=先清 done 标志再查询。
-  Future<bool> sessionTriggerBag({int action = 1, bool clearDone = true}) async {
+  Future<bool> sessionTriggerBag({
+    int action = 1,
+    bool clearDone = true,
+  }) async {
+    if (!await _ensureSessionQuickControlReady()) {
+      return false;
+    }
     final resp = await _runSessionCommand(
       command: HmiSessionCommand.triggerBag,
       payload: <int>[action & 0xFF, clearDone ? 0 : 1],
@@ -913,7 +953,13 @@ class HmiController extends ChangeNotifier {
   }
 
   /// 封口命令。
-  Future<bool> sessionTriggerSeal({int action = 1, bool clearDone = true}) async {
+  Future<bool> sessionTriggerSeal({
+    int action = 1,
+    bool clearDone = true,
+  }) async {
+    if (!await _ensureSessionQuickControlReady()) {
+      return false;
+    }
     final resp = await _runSessionCommand(
       command: HmiSessionCommand.triggerSeal,
       payload: <int>[action & 0xFF, clearDone ? 0 : 1],
@@ -923,7 +969,13 @@ class HmiController extends ChangeNotifier {
   }
 
   /// 投料命令。
-  Future<bool> sessionTriggerDeliver({int action = 1, bool clearDone = true}) async {
+  Future<bool> sessionTriggerDeliver({
+    int action = 1,
+    bool clearDone = true,
+  }) async {
+    if (!await _ensureSessionQuickControlReady()) {
+      return false;
+    }
     final resp = await _runSessionCommand(
       command: HmiSessionCommand.triggerDeliver,
       payload: <int>[action & 0xFF, clearDone ? 0 : 1],
@@ -934,6 +986,9 @@ class HmiController extends ChangeNotifier {
 
   /// 清除完成标志。flagType: 1=出袋, 2=封口, 3=投料。
   Future<bool> sessionClearFlag(int flagType) async {
+    if (!await _ensureSessionQuickControlReady()) {
+      return false;
+    }
     final resp = await _runSessionCommand(
       command: HmiSessionCommand.clearFlag,
       payload: <int>[flagType & 0xFF],
@@ -944,6 +999,9 @@ class HmiController extends ChangeNotifier {
 
   /// 故障复位。scope: 0=清报警码, 1=清锁存, 2=全部复位+停机。
   Future<bool> sessionResetFault(int scope) async {
+    if (!await _ensureSessionQuickControlReady()) {
+      return false;
+    }
     final resp = await _runSessionCommand(
       command: HmiSessionCommand.resetFault,
       payload: <int>[scope & 0xFF],
@@ -954,6 +1012,9 @@ class HmiController extends ChangeNotifier {
 
   /// 步进电机点动。motorId: 电机编号, direction: 0=正 1=反, pulses: 脉冲数。
   Future<bool> sessionStepperJog(int motorId, int direction, int pulses) async {
+    if (!await _ensureSessionQuickControlReady()) {
+      return false;
+    }
     final resp = await _runSessionCommand(
       command: HmiSessionCommand.stepperJog,
       payload: <int>[
@@ -968,7 +1029,14 @@ class HmiController extends ChangeNotifier {
   }
 
   /// 直流电机点动。motorId: 1 或 2, direction: 0=正 1=反, durationMs: 时长。
-  Future<bool> sessionDcMotorJog(int motorId, int direction, int durationMs) async {
+  Future<bool> sessionDcMotorJog(
+    int motorId,
+    int direction,
+    int durationMs,
+  ) async {
+    if (!await _ensureSessionQuickControlReady()) {
+      return false;
+    }
     final resp = await _runSessionCommand(
       command: HmiSessionCommand.dcMotorJog,
       payload: <int>[
@@ -987,6 +1055,9 @@ class HmiController extends ChangeNotifier {
     required int nodeAddress,
     bool? usePortB,
   }) async {
+    if (!await _ensureSessionQuickControlReady()) {
+      return null;
+    }
     final resp = await _runSessionCommand(
       command: HmiSessionCommand.getDeviceStatus,
       label: 'Session系统信息',
@@ -1088,6 +1159,11 @@ class HmiController extends ChangeNotifier {
       );
       channel.sessionWaiters.remove(waiter);
       if (response == null) {
+        _sessionHandshakeReady = false;
+        if (_transportB.isConnected &&
+            _sessionState != HmiSessionClientState.disconnected) {
+          _sessionState = HmiSessionClientState.degraded;
+        }
         _statusMessage = '$label超时（${_retryPolicy.timeoutMs}ms）';
         notifyListeners();
         return null;
@@ -1096,6 +1172,11 @@ class HmiController extends ChangeNotifier {
       notifyListeners();
       return response;
     } catch (_) {
+      _sessionHandshakeReady = false;
+      if (_transportB.isConnected &&
+          _sessionState != HmiSessionClientState.disconnected) {
+        _sessionState = HmiSessionClientState.degraded;
+      }
       channel.sessionWaiters.remove(waiter);
       _statusMessage = '$label失败';
       notifyListeners();
@@ -1175,6 +1256,7 @@ class HmiController extends ChangeNotifier {
 
   void _resetSessionCache() {
     _sessionState = HmiSessionClientState.disconnected;
+    _sessionHandshakeReady = false;
     _sessionSyncInProgress = false;
     _sessionSubscriptionMask = 0;
     _sessionGroups.clear();
@@ -1205,9 +1287,11 @@ class HmiController extends ChangeNotifier {
         label: 'Session握手',
       );
       if (hello == null || hello.payload.length < 2 || hello.payload[0] != 0) {
+        _sessionHandshakeReady = false;
         _sessionState = HmiSessionClientState.degraded;
         return;
       }
+      _sessionHandshakeReady = true;
 
       _sessionState = HmiSessionClientState.deviceInfo;
       notifyListeners();
@@ -1542,7 +1626,10 @@ class HmiController extends ChangeNotifier {
         _latestStackSnapshot = snapshot;
         _stackSnapshots.insert(0, snapshot);
         if (_stackSnapshots.length > _maxStackSnapshots) {
-          _stackSnapshots.removeRange(_maxStackSnapshots, _stackSnapshots.length);
+          _stackSnapshots.removeRange(
+            _maxStackSnapshots,
+            _stackSnapshots.length,
+          );
         }
         _stackTaskStats = mergeStackTaskStats(_stackTaskStats, snapshot);
         _enqueueStackSnapshotForDisk(snapshot);

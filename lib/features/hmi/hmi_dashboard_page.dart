@@ -2098,7 +2098,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   // ────────────── USART1 Session 控制命令快捷面板 ──────────────
 
   Widget _buildUsart1ControlPanel(HmiController controller) {
-    final connected = controller.isConnectedB;
+    final connected = controller.sessionQuickControlReady;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
