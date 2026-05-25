@@ -219,4 +219,48 @@ void main() {
     await transportA.dispose();
     await transportB.dispose();
   });
+
+  testWidgets('非预设波特率也能安全显示在下拉框中', (WidgetTester tester) async {
+    final transportA = _FakeSerialTransport();
+    final transportB = _FakeSerialTransport();
+    final controller = HmiController(transportA, transportB: transportB);
+    controller.setBaudRateA(250000);
+
+    final app = HmiHostApp(controller: controller);
+    await tester.pumpWidget(app);
+    await tester.pump();
+
+    expect(find.text('250000'), findsAtLeastNWidgets(1));
+    expect(tester.takeException(), isNull);
+
+    controller.dispose();
+    await transportA.dispose();
+    await transportB.dispose();
+  });
+
+  testWidgets('可通过自定义波特率对话框写入新值', (WidgetTester tester) async {
+    final transportA = _FakeSerialTransport();
+    final transportB = _FakeSerialTransport();
+    final controller = HmiController(transportA, transportB: transportB);
+
+    final app = HmiHostApp(controller: controller);
+    await tester.pumpWidget(app);
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('自定义波特率').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('自定义波特率'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), '250000');
+    await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
+
+    expect(controller.portAConfig.baudRate, 250000);
+    expect(find.text('250000'), findsAtLeastNWidgets(1));
+    expect(tester.takeException(), isNull);
+
+    controller.dispose();
+    await transportA.dispose();
+    await transportB.dispose();
+  });
 }

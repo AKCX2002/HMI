@@ -49,6 +49,29 @@ enum HmiFlowControl {
 
 /// 单个串口连接配置。
 class HmiPortConfig {
+  /// 当前 UI 预设的常用波特率列表。
+  ///
+  /// 兼顾传统串口设备与较高速 USB-UART 适配器的常见档位。
+  static const List<int> supportedBaudRates = <int>[
+    1200,
+    2400,
+    4800,
+    9600,
+    14400,
+    19200,
+    38400,
+    57600,
+    115200,
+    230400,
+    256000,
+    460800,
+    921600,
+  ];
+
+  /// 自定义波特率允许范围。
+  static const int minCustomBaudRate = 300;
+  static const int maxCustomBaudRate = 3000000;
+
   /// 当前协议族可安全工作的 data bits 列表。
   ///
   /// 现有 USART3 固定 20B 帧与 USART1 Session 帧都依赖 8-bit 字节值，
@@ -60,6 +83,24 @@ class HmiPortConfig {
   /// 将外部输入收敛为当前协议支持的数据位。
   static HmiDataBits normalizeDataBits(HmiDataBits value) {
     return supportedDataBits.contains(value) ? value : HmiDataBits.bits8;
+  }
+
+  /// 返回适用于下拉框的波特率列表。
+  ///
+  /// 若当前配置值不在预设列表内，则临时补入并排序，避免下拉框因
+  /// `initialValue` 不存在于 `items` 中而触发断言或渲染异常。
+  static List<int> baudRateOptionsFor(int currentValue) {
+    final options = <int>{...supportedBaudRates};
+    if (currentValue > 0) {
+      options.add(currentValue);
+    }
+    final sorted = options.toList()..sort();
+    return sorted;
+  }
+
+  /// 检查波特率是否处于允许范围内。
+  static bool isValidBaudRate(int value) {
+    return value >= minCustomBaudRate && value <= maxCustomBaudRate;
   }
 
   /// 创建串口配置。

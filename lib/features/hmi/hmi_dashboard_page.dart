@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../util/log_exporter.dart';
 import 'hmi_controller.dart';
+import 'hmi_port_config.dart';
 import 'hmi_protocol.dart';
 import 'hmi_session_catalog.dart';
 import 'hmi_serial_config_page.dart';
@@ -770,7 +771,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
           dropdownColor: const Color(0xFF122B4D),
           style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 11),
           isDense: true,
-          items: const <int>[9600, 14400, 19200, 38400, 57600, 115200]
+          items: HmiPortConfig.baudRateOptionsFor(baudRate)
               .map(
                 (v) => DropdownMenuItem<int>(
                   value: v,
@@ -779,6 +780,13 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
               )
               .toList(),
           onChanged: canEdit ? (v) => onBaudRateChanged(v ?? 9600) : null,
+        );
+
+        final baudControl = _buildMiniBaudControl(
+          baudRate: baudRate,
+          canEdit: canEdit,
+          dropdown: baudDropdown,
+          onBaudRateChanged: onBaudRateChanged,
         );
 
         final scanBtn = Tooltip(
@@ -844,7 +852,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
               const SizedBox(height: 4),
               Row(children: <Widget>[Expanded(child: portDropdown)]),
               const SizedBox(height: 4),
-              Row(children: <Widget>[Expanded(child: baudDropdown)]),
+              Row(children: <Widget>[Expanded(child: baudControl)]),
             ],
           );
         } else if (somewhatCompact) {
@@ -865,7 +873,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                 children: <Widget>[
                   Expanded(flex: 5, child: portDropdown),
                   const SizedBox(width: 4),
-                  Expanded(flex: 2, child: baudDropdown),
+                  Expanded(flex: 2, child: baudControl),
                 ],
               ),
             ],
@@ -878,7 +886,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
               const SizedBox(width: 4),
               Expanded(flex: 5, child: portDropdown),
               const SizedBox(width: 4),
-              Expanded(flex: 2, child: baudDropdown),
+              Expanded(flex: 2, child: baudControl),
               const SizedBox(width: 4),
               scanBtn,
               const SizedBox(width: 3),
@@ -902,6 +910,130 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
         borderRadius: BorderRadius.circular(6),
       ),
     );
+  }
+
+  Widget _buildMiniBaudControl({
+    required int baudRate,
+    required bool canEdit,
+    required Widget dropdown,
+    required ValueChanged<int> onBaudRateChanged,
+  }) {
+    return Row(
+      children: <Widget>[
+        Expanded(child: dropdown),
+        const SizedBox(width: 4),
+        Tooltip(
+          message: '自定义波特率',
+          child: SizedBox(
+            height: 30,
+            width: 30,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF375A7F),
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: const Color(0xFF445E78),
+                padding: EdgeInsets.zero,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
+              ),
+              onPressed: canEdit
+                  ? () async {
+                      final custom = await _showCustomBaudRateDialog(
+                        currentValue: baudRate,
+                        title: '自定义波特率',
+                      );
+                      if (custom != null) {
+                        onBaudRateChanged(custom);
+                      }
+                    }
+                  : null,
+              child: Text('自', style: GoogleFonts.ibmPlexSans(fontSize: 10)),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<int?> _showCustomBaudRateDialog({
+    required int currentValue,
+    required String title,
+  }) async {
+    var textValue = '$currentValue';
+    var errorText = '';
+    final result = await showDialog<int>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocalState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF0D1A30),
+              title: Text(
+                title,
+                style: GoogleFonts.ibmPlexSans(color: const Color(0xFFD7E8FF)),
+              ),
+              content: SizedBox(
+                width: 320,
+                child: TextFormField(
+                  initialValue: textValue,
+                  autofocus: true,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: <TextInputFormatter>[
+                    FilteringTextInputFormatter.digitsOnly,
+                  ],
+                  style: const TextStyle(color: Color(0xFFD7E8FF)),
+                  decoration: InputDecoration(
+                    labelText:
+                        '范围 ${HmiPortConfig.minCustomBaudRate}-${HmiPortConfig.maxCustomBaudRate}',
+                    labelStyle: const TextStyle(
+                      color: Color(0xFFA6C5EA),
+                      fontSize: 12,
+                    ),
+                    errorText: errorText.isEmpty ? null : errorText,
+                  ),
+                  onChanged: (value) => textValue = value,
+                  onSubmitted: (_) {
+                    final value = int.tryParse(textValue.trim());
+                    if (value == null ||
+                        !HmiPortConfig.isValidBaudRate(value)) {
+                      setLocalState(() {
+                        errorText =
+                            '请输入 ${HmiPortConfig.minCustomBaudRate}-${HmiPortConfig.maxCustomBaudRate} 的整数';
+                      });
+                      return;
+                    }
+                    Navigator.of(ctx).pop(value);
+                  },
+                ),
+              ),
+              actions: <Widget>[
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final value = int.tryParse(textValue.trim());
+                    if (value == null ||
+                        !HmiPortConfig.isValidBaudRate(value)) {
+                      setLocalState(() {
+                        errorText =
+                            '请输入 ${HmiPortConfig.minCustomBaudRate}-${HmiPortConfig.maxCustomBaudRate} 的整数';
+                      });
+                      return;
+                    }
+                    Navigator.of(ctx).pop(value);
+                  },
+                  child: const Text('确定'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    return result;
   }
 
   /// ── 端口 A 面板：左协议 (USART3 / 20B 主控协议) ──

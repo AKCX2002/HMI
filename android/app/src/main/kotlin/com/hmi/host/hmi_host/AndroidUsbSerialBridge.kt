@@ -267,6 +267,7 @@ class AndroidUsbSerialBridge(
                 mapStopBits(pending.stopBits),
                 mapParity(pending.parity),
             )
+            primeControlLines(port)
             applyFlowControl(port, pending.flowControl)
             val ioManager =
                 SerialInputOutputManager(
@@ -307,6 +308,14 @@ class AndroidUsbSerialBridge(
             pending.result.error("connect_failed", e.message ?: "USB 串口连接失败", null)
             closeSession(pending.transportId, notifyClosed = false)
         }
+    }
+
+    private fun primeControlLines(port: UsbSerialPort) {
+        // 某些 Android USB-Serial / CDC 设备在主机侧未显式拉起 DTR/RTS 时，
+        // 会表现为“可以发送，但对端长期不回数据”。PC 串口工具往往会自动拉线，
+        // Android 自定义桥则需要主动兼容。
+        runCatching { port.dtr = true }
+        runCatching { port.rts = true }
     }
 
     private fun handleDisconnect(call: MethodCall, result: MethodChannel.Result) {

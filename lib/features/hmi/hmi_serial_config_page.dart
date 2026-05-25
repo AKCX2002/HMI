@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -19,19 +20,6 @@ class HmiSerialConfigPage extends StatefulWidget {
 }
 
 class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
-  static const List<int> _kBaudRates = <int>[
-    1200,
-    2400,
-    4800,
-    9600,
-    14400,
-    19200,
-    38400,
-    57600,
-    115200,
-    230400,
-  ];
-
   @override
   Widget build(BuildContext context) {
     final c = widget.controller;
@@ -460,23 +448,128 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
     bool canEdit,
     ValueChanged<int> onChanged,
   ) {
-    return DropdownButtonFormField<int>(
-      initialValue: value,
-      isExpanded: true,
-      decoration: _fieldDeco('波特率'),
-      dropdownColor: const Color(0xFF122B4D),
-      style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
-      isDense: true,
-      items: _kBaudRates
-          .map(
-            (v) => DropdownMenuItem<int>(
-              value: v,
-              child: Text('$v', style: const TextStyle(fontSize: 12)),
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: DropdownButtonFormField<int>(
+            initialValue: value,
+            isExpanded: true,
+            decoration: _fieldDeco('波特率'),
+            dropdownColor: const Color(0xFF122B4D),
+            style: const TextStyle(color: Color(0xFFD7E8FF), fontSize: 12),
+            isDense: true,
+            items: HmiPortConfig.baudRateOptionsFor(value)
+                .map(
+                  (v) => DropdownMenuItem<int>(
+                    value: v,
+                    child: Text('$v', style: const TextStyle(fontSize: 12)),
+                  ),
+                )
+                .toList(),
+            onChanged: canEdit ? (v) => onChanged(v ?? 9600) : null,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Tooltip(
+          message: '自定义波特率',
+          child: SizedBox(
+            width: 36,
+            height: 36,
+            child: ElevatedButton(
+              style: _btnStyle(const Color(0xFF375A7F)),
+              onPressed: canEdit
+                  ? () async {
+                      final custom = await _showCustomBaudRateDialog(
+                        currentValue: value,
+                      );
+                      if (custom != null) {
+                        onChanged(custom);
+                      }
+                    }
+                  : null,
+              child: Text('自', style: GoogleFonts.ibmPlexSans(fontSize: 11)),
             ),
-          )
-          .toList(),
-      onChanged: canEdit ? (v) => onChanged(v ?? 9600) : null,
+          ),
+        ),
+      ],
     );
+  }
+
+  Future<int?> _showCustomBaudRateDialog({required int currentValue}) async {
+    var textValue = '$currentValue';
+    var errorText = '';
+    final result = await showDialog<int>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocalState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF0D1A30),
+              title: Text(
+                '自定义波特率',
+                style: GoogleFonts.ibmPlexSans(color: const Color(0xFFD7E8FF)),
+              ),
+              content: SizedBox(
+                width: 320,
+                child: TextFormField(
+                  initialValue: textValue,
+                  autofocus: true,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: <TextInputFormatter>[
+                    FilteringTextInputFormatter.digitsOnly,
+                  ],
+                  style: const TextStyle(color: Color(0xFFD7E8FF)),
+                  decoration: InputDecoration(
+                    labelText:
+                        '范围 ${HmiPortConfig.minCustomBaudRate}-${HmiPortConfig.maxCustomBaudRate}',
+                    labelStyle: const TextStyle(
+                      color: Color(0xFFA6C5EA),
+                      fontSize: 12,
+                    ),
+                    errorText: errorText.isEmpty ? null : errorText,
+                  ),
+                  onChanged: (value) => textValue = value,
+                  onSubmitted: (_) {
+                    final value = int.tryParse(textValue.trim());
+                    if (value == null ||
+                        !HmiPortConfig.isValidBaudRate(value)) {
+                      setLocalState(() {
+                        errorText =
+                            '请输入 ${HmiPortConfig.minCustomBaudRate}-${HmiPortConfig.maxCustomBaudRate} 的整数';
+                      });
+                      return;
+                    }
+                    Navigator.of(ctx).pop(value);
+                  },
+                ),
+              ),
+              actions: <Widget>[
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final value = int.tryParse(textValue.trim());
+                    if (value == null ||
+                        !HmiPortConfig.isValidBaudRate(value)) {
+                      setLocalState(() {
+                        errorText =
+                            '请输入 ${HmiPortConfig.minCustomBaudRate}-${HmiPortConfig.maxCustomBaudRate} 的整数';
+                      });
+                      return;
+                    }
+                    Navigator.of(ctx).pop(value);
+                  },
+                  child: const Text('确定'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    return result;
   }
 
   Widget _buildDataBitsDropdown(
