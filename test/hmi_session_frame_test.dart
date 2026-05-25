@@ -47,4 +47,26 @@ void main() {
     expect(frames.single.command, HmiSessionCommand.logPush);
     expect(String.fromCharCodes(frames.single.payload), 'hello');
   });
+
+  test('stream decoder drains multiple complete frames from one byte batch', () {
+    final hello = HmiSessionFrame(
+      type: HmiSessionFrameType.response,
+      sequence: 1,
+      command: HmiSessionCommand.hello,
+      payload: Uint8List.fromList(<int>[0x00, 0x01]),
+    ).encode();
+    final info = HmiSessionFrame(
+      type: HmiSessionFrameType.response,
+      sequence: 2,
+      command: HmiSessionCommand.deviceInfo,
+      payload: Uint8List.fromList(<int>[0x00, 0x02, 0x00, 0x1D, 0x00]),
+    ).encode();
+
+    final decoder = HmiSessionFrameDecoder();
+    final frames = decoder.pushBytes(<int>[...hello, ...info]);
+
+    expect(frames, hasLength(2));
+    expect(frames[0].command, HmiSessionCommand.hello);
+    expect(frames[1].command, HmiSessionCommand.deviceInfo);
+  });
 }

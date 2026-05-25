@@ -1480,11 +1480,8 @@ class HmiController extends ChangeNotifier {
 
   bool _consumeSessionFrames(Uint8List bytes, _PortChannel channel) {
     var changed = false;
-    for (final byte in bytes) {
-      final frame = channel.sessionDecoder.push(byte);
-      if (frame == null) {
-        continue;
-      }
+    final frames = channel.sessionDecoder.pushBytes(bytes);
+    for (final frame in frames) {
       changed = true;
       _appendSessionFrame(frame, channel.config.label);
     }

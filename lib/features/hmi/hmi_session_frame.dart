@@ -144,8 +144,30 @@ class HmiSessionFrame {
 class HmiSessionFrameDecoder {
   final List<int> _buffer = <int>[];
 
+  List<HmiSessionFrame> pushBytes(Iterable<int> bytes) {
+    final frames = <HmiSessionFrame>[];
+    for (final byte in bytes) {
+      final frame = push(byte);
+      if (frame != null) {
+        frames.add(frame);
+      }
+      while (true) {
+        final pending = _tryExtractFrame();
+        if (pending == null) {
+          break;
+        }
+        frames.add(pending);
+      }
+    }
+    return frames;
+  }
+
   HmiSessionFrame? push(int byte) {
     _buffer.add(byte & 0xFF);
+    return _tryExtractFrame();
+  }
+
+  HmiSessionFrame? _tryExtractFrame() {
     if (_buffer.length > 4096) {
       _buffer.removeRange(0, _buffer.length - 4096);
     }
