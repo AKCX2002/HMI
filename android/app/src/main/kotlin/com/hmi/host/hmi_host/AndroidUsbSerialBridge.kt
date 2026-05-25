@@ -343,7 +343,9 @@ class AndroidUsbSerialBridge(
                     return
                 }
         try {
-            session.port.write(bytes, USB_WRITE_TIMEOUT_MS)
+            // SerialInputOutputManager 已接管读写线程时，发送必须复用其异步写队列，
+            // 否则和底层读线程并发直调 port.write(...) 容易触发链路异常并被误判为断开。
+            session.ioManager.writeAsync(bytes)
             result.success(bytes.size)
         } catch (e: Exception) {
             closeSession(transportId, notifyClosed = true)
