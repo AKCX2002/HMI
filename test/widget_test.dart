@@ -14,6 +14,8 @@ class _FakeSerialTransport implements SerialTransport {
 
   final StreamController<Uint8List> _incoming =
       StreamController<Uint8List>.broadcast();
+  final StreamController<SerialConnectionState> _connectionStates =
+      StreamController<SerialConnectionState>.broadcast();
   final List<String> _ports;
 
   void emit(List<int> bytes) {
@@ -43,9 +45,13 @@ class _FakeSerialTransport implements SerialTransport {
   bool get isConnected => false;
 
   @override
+  Stream<SerialConnectionState> get connectionStates => _connectionStates.stream;
+
+  @override
   Future<void> write(Uint8List bytes) async {}
 
   Future<void> dispose() async {
+    await _connectionStates.close();
     await _incoming.close();
   }
 }
