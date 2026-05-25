@@ -11,6 +11,7 @@ import android.hardware.usb.UsbManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import com.hoho.android.usbserial.driver.UsbSerialDriver
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
@@ -27,6 +28,7 @@ private const val EVENT_CHANNEL_NAME = "hmi_host/android_usb_serial/events"
 private const val ACTION_USB_PERMISSION =
     "com.hmi.host.hmi_host.USB_SERIAL_PERMISSION"
 private const val USB_WRITE_TIMEOUT_MS = 2000
+private const val TAG = "UsbSerialBridge"
 
 class AndroidUsbSerialBridge(
     private val activity: Activity,
@@ -293,6 +295,8 @@ class AndroidUsbSerialBridge(
                     port,
                     object : SerialInputOutputManager.Listener {
                         override fun onNewData(data: ByteArray) {
+                            val hex = data.joinToString(" ") { "%02x".format(it) }
+                            Log.d(TAG, "[RX t=$pending.transportId] len=${data.size} bytes=$hex")
                             emitEvent(
                                 mapOf(
                                     "transportId" to pending.transportId,
@@ -361,21 +365,12 @@ class AndroidUsbSerialBridge(
                     result.error("not_connected", "串口未连接", null)
                     return
                 }
-        writeExecutor.execute {
-            try {
-                // 官方示例采用“事件驱动读 + 直接 port.write(...)”组合。
-                // 这里把写入串行化到单线程，避免 Flutter 主线程阻塞，也避免多次写入交错。
-                synchronized(session.port) {
-                    session.port.write(bytes, USB_WRITE_TIMEOUT_MS)
-                }
-                mainHandler.post { result.success(bytes.size) }
-            } catch (e: Exception) {
-                closeSession(transportId, notifyClosed = true)
-                mainHandler.post {
-                    result.error("write_failed", e.message ?: "USB 串口写入失败", null)
-                }
-            }
-        }
+        val hex = bytes.joinToString(" ") { "%02x".format(it) }
+        Log.d(TAG, "[WRITE t=$transportId] len=${bytes.size} bytes=$hex")
+        // ioManager.writeAsync 将写入串行化到与读取相同的线程，
+        // 避免 port.write() 跨线程调用与 ioManager 读线程产生 USB 竞争。
+        session.ioManager.writeAsync(bytes)
+        result.success(bytes.size)
     }
 
     private fun handleDeviceDetached(intent: Intent) {
