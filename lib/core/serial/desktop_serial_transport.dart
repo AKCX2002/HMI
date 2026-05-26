@@ -15,6 +15,29 @@ class DesktopSerialTransport implements SerialTransport {
   SerialPortReader? _reader;
   StreamSubscription<Uint8List>? _readerSubscription;
 
+  String _errnoHint(int code) {
+    switch (code) {
+      case 2:
+        return '设备不存在';
+      case 5:
+        return 'I/O 错误';
+      case 13:
+        return '权限不足';
+      case 16:
+        return '设备忙';
+      default:
+        return '系统错误';
+    }
+  }
+
+  String _formatOpenError(String portName, SerialPortError? error) {
+    if (error == null) {
+      return '无法打开串口 $portName';
+    }
+    final hint = _errnoHint(error.errorCode);
+    return '无法打开串口 $portName（$hint, errno=${error.errorCode}）';
+  }
+
   @override
   Future<List<String>> availablePorts() async {
     if (kIsWeb) {
@@ -47,9 +70,9 @@ class DesktopSerialTransport implements SerialTransport {
     try {
       final opened = port.openReadWrite();
       if (!opened) {
-        final message =
-            SerialPort.lastError?.toString() ?? '无法打开串口 $portName';
-        throw StateError(message);
+        final err = SerialPort.lastError;
+        debugPrint('打开串口失败原始错误: $err');
+        throw StateError(_formatOpenError(portName, err));
       }
 
       final config = SerialPortConfig();
