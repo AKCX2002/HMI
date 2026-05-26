@@ -190,6 +190,10 @@ class HmiSessionFrameDecoder {
         _buffer.removeAt(0);
         continue;
       }
+      if (_buffer[2] != HmiSessionFrame.protocolVersion) {
+        _buffer.removeAt(0);
+        continue;
+      }
       final payloadLen = _buffer[8] | (_buffer[9] << 8);
       final frameLen =
           HmiSessionFrame.headerLength + payloadLen + HmiSessionFrame.crcLength;

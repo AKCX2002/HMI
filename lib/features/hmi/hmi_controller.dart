@@ -268,6 +268,7 @@ class HmiController extends ChangeNotifier {
   List<String> _portsB = <String>[];
   int _sessionSeq = 1;
   int _sessionEpoch = 0;
+  int _sessionInboundFrameCount = 0;
   String _deviceName = '打包机';
   HmiSessionClientState _sessionState = HmiSessionClientState.disconnected;
   bool _sessionHandshakeReady = false;
@@ -1147,35 +1148,59 @@ class HmiController extends ChangeNotifier {
       return null;
     }
 
-    final seq = _sessionSeq;
-    _sessionSeq = (_sessionSeq + 1) & 0xFFFF;
-    if (_sessionSeq == 0) _sessionSeq = 1;
+    final maxAttempts = _retryPolicy.maxRetries <= 0 ? 1 : _retryPolicy.maxRetries;
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      final seq = _sessionSeq;
+      _sessionSeq = (_sessionSeq + 1) & 0xFFFF;
+      if (_sessionSeq == 0) _sessionSeq = 1;
+      final inboundFrameCountBeforeTx = _sessionInboundFrameCount;
 
-    final frame = HmiSessionFrame(
-      type: HmiSessionFrameType.request,
-      sequence: seq,
-      command: command,
-      flags: HmiSessionFlags.ackRequired,
-      payload: Uint8List.fromList(payload),
-    );
-    final waiter = _SessionWaiter(
-      (f) =>
-          f.sequence == seq &&
-          f.command == command &&
-          f.type == HmiSessionFrameType.response,
-    );
-    channel.sessionWaiters.add(waiter);
-
-    try {
-      final encoded = frame.encode();
-      await transport.write(encoded);
-      _appendSessionTx(frame, channel.config.label);
-      final response = await waiter.completer.future.timeout(
-        Duration(milliseconds: _retryPolicy.timeoutMs),
-        onTimeout: () => null,
+      final frame = HmiSessionFrame(
+        type: HmiSessionFrameType.request,
+        sequence: seq,
+        command: command,
+        flags: HmiSessionFlags.ackRequired,
+        payload: Uint8List.fromList(payload),
       );
-      channel.sessionWaiters.remove(waiter);
-      if (response == null) {
+      final waiter = _SessionWaiter(
+        (f) =>
+            f.sequence == seq &&
+            f.command == command &&
+            f.type == HmiSessionFrameType.response,
+      );
+      channel.sessionWaiters.add(waiter);
+
+      try {
+        final encoded = frame.encode();
+        await transport.write(encoded);
+        _appendSessionTx(frame, channel.config.label);
+        final response = await waiter.completer.future.timeout(
+          Duration(milliseconds: _retryPolicy.timeoutMs),
+          onTimeout: () => null,
+        );
+        channel.sessionWaiters.remove(waiter);
+        final effectiveResponse =
+            response ??
+            _fallbackHelloLivenessAck(
+              command: command,
+              sequence: seq,
+              inboundFrameCountBeforeTx: inboundFrameCountBeforeTx,
+            );
+        if (effectiveResponse != null) {
+          _statusMessage = attempt > 1 ? '$label成功（重试#$attempt）' : '$label成功';
+          notifyListeners();
+          return effectiveResponse;
+        }
+        if (attempt < maxAttempts) {
+          _statusMessage = '$label超时，准备重试（$attempt/$maxAttempts）';
+          notifyListeners();
+          if (_retryPolicy.retryIntervalMs > 0) {
+            await Future<void>.delayed(
+              Duration(milliseconds: _retryPolicy.retryIntervalMs),
+            );
+          }
+          continue;
+        }
         _sessionHandshakeReady = false;
         if (_transportB.isConnected &&
             _sessionState != HmiSessionClientState.disconnected) {
@@ -1184,21 +1209,51 @@ class HmiController extends ChangeNotifier {
         _statusMessage = '$label超时（${_retryPolicy.timeoutMs}ms）';
         notifyListeners();
         return null;
+      } catch (_) {
+        channel.sessionWaiters.remove(waiter);
+        if (attempt < maxAttempts) {
+          _statusMessage = '$label失败，准备重试（$attempt/$maxAttempts）';
+          notifyListeners();
+          if (_retryPolicy.retryIntervalMs > 0) {
+            await Future<void>.delayed(
+              Duration(milliseconds: _retryPolicy.retryIntervalMs),
+            );
+          }
+          continue;
+        }
+        _sessionHandshakeReady = false;
+        if (_transportB.isConnected &&
+            _sessionState != HmiSessionClientState.disconnected) {
+          _sessionState = HmiSessionClientState.degraded;
+        }
+        _statusMessage = '$label失败';
+        notifyListeners();
+        return null;
       }
-      _statusMessage = '$label成功';
-      notifyListeners();
-      return response;
-    } catch (_) {
-      _sessionHandshakeReady = false;
-      if (_transportB.isConnected &&
-          _sessionState != HmiSessionClientState.disconnected) {
-        _sessionState = HmiSessionClientState.degraded;
-      }
-      channel.sessionWaiters.remove(waiter);
-      _statusMessage = '$label失败';
-      notifyListeners();
+    }
+    return null;
+  }
+
+  HmiSessionFrame? _fallbackHelloLivenessAck({
+    required HmiSessionCommand command,
+    required int sequence,
+    required int inboundFrameCountBeforeTx,
+  }) {
+    if (command != HmiSessionCommand.hello) {
       return null;
     }
+    if (!_transportB.isConnected) {
+      return null;
+    }
+    if (_sessionInboundFrameCount <= inboundFrameCountBeforeTx) {
+      return null;
+    }
+    return HmiSessionFrame(
+      type: HmiSessionFrameType.response,
+      sequence: sequence,
+      command: HmiSessionCommand.hello,
+      payload: Uint8List.fromList(const <int>[0x00, 0x01]),
+    );
   }
 
   Future<CommandExecutionResult> _runPackerCommand(
@@ -1370,11 +1425,13 @@ class HmiController extends ChangeNotifier {
       _sessionState = HmiSessionClientState.directoryReady;
       notifyListeners();
 
-      await readAllSessionParams();
+      final valueCount = await readAllSessionParams();
       if (!_isSessionEpochCurrent(epoch)) {
         return;
       }
       _sessionState = HmiSessionClientState.valuesReady;
+      _statusMessage =
+          '参数目录已同步: 分组 ${_sessionGroups.length} / 参数 ${_sessionParams.length} / 已读值 $valueCount';
       notifyListeners();
 
       final subscribed = await sendSessionSubscribe(
@@ -1404,9 +1461,15 @@ class HmiController extends ChangeNotifier {
         label: '读取参数分组',
       );
       if (resp == null) {
-        return <HmiSessionGroupDef>[];
+        return groups;
       }
-      final page = parseGroupCatalogPage(resp.payload);
+      HmiSessionGroupCatalogPage page;
+      try {
+        page = parseGroupCatalogPage(resp.payload);
+      } on FormatException catch (error) {
+        _statusMessage = '读取参数分组失败: $error';
+        return groups;
+      }
       groups.addAll(page.groups);
       if (page.nextOffset == 0 || page.nextOffset == offset) {
         break;
@@ -1427,9 +1490,15 @@ class HmiController extends ChangeNotifier {
         label: '读取参数目录',
       );
       if (resp == null) {
-        return <HmiSessionParamDef>[];
+        return params;
       }
-      final page = parseParamCatalogPage(resp.payload);
+      HmiSessionParamCatalogPage page;
+      try {
+        page = parseParamCatalogPage(resp.payload);
+      } on FormatException catch (error) {
+        _statusMessage = '读取参数目录失败: $error';
+        return params;
+      }
       params.addAll(page.params);
       if (page.nextOffset == 0 || page.nextOffset == offset) {
         break;
@@ -1463,34 +1532,43 @@ class HmiController extends ChangeNotifier {
     return resp.payload[1];
   }
 
-  Future<void> readAllSessionParams() async {
+  Future<int> readAllSessionParams() async {
     final ordered = _sessionParams.map((e) => e.paramId).toList()..sort();
     final chunk = <int>[];
     _sessionParamValues.clear();
+    var totalRead = 0;
 
     for (final paramId in ordered) {
       chunk.add(paramId);
       if (chunk.length >= 8) {
-        await _readParamChunk(chunk);
+        totalRead += await _readParamChunk(chunk);
         chunk.clear();
       }
     }
     if (chunk.isNotEmpty) {
-      await _readParamChunk(chunk);
+      totalRead += await _readParamChunk(chunk);
     }
+    return totalRead;
   }
 
-  Future<void> _readParamChunk(List<int> paramIds) async {
+  Future<int> _readParamChunk(List<int> paramIds) async {
     final resp = await _runSessionCommand(
       command: HmiSessionCommand.getParamValuesBatch,
       payload: <int>[paramIds.length & 0xFF, ...paramIds],
       label: '批量读取参数',
     );
     if (resp == null || resp.payload.isEmpty) {
-      return;
+      return 0;
+    }
+    if ((resp.flags & HmiSessionFlags.error) != 0) {
+      final code = resp.payload.first;
+      _statusMessage =
+          '批量读取参数被拒绝: code=$code ids=${paramIds.map(toHex2).join(",")}';
+      return 0;
     }
     final count = resp.payload[0];
     var cursor = 1;
+    var readCount = 0;
     for (var i = 0; i < count; i++) {
       if (cursor + 6 > resp.payload.length) {
         break;
@@ -1502,8 +1580,10 @@ class HmiController extends ChangeNotifier {
           (resp.payload[cursor + 4] << 16) |
           (resp.payload[cursor + 5] << 24);
       _sessionParamValues[paramId] = value;
+      readCount++;
       cursor += 6;
     }
+    return readCount;
   }
 
   // ────────────── 内部处理 ──────────────
@@ -1644,6 +1724,7 @@ class HmiController extends ChangeNotifier {
   }
 
   void _appendSessionFrame(HmiSessionFrame frame, String portLabel) {
+    _sessionInboundFrameCount++;
     final raw = frame.rawHex;
     final textPayload = String.fromCharCodes(
       frame.payload.where((byte) => byte >= 0x20 && byte <= 0x7E),

@@ -41,7 +41,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   String _paramsStatus = '';
 
   final TextEditingController _retryCount = TextEditingController(text: '1');
-  final TextEditingController _timeoutMs = TextEditingController(text: '1200');
+  final TextEditingController _timeoutMs = TextEditingController(text: '5000');
   final TextEditingController _retryIntervalMs = TextEditingController(
     text: '200',
   );
@@ -1938,6 +1938,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   }
 
   Widget _buildUsart1ParamsPage(HmiController controller) {
+    final sessionSummary = _buildSessionCatalogSummary(controller);
+    final syncDetail = _buildSessionSyncDetail(controller);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -1958,14 +1961,22 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                 trailing: _miniBtn(
                   '重新同步',
                   !controller.sessionSyncInProgress,
-                  () => controller.syncSessionCatalog(),
+                  () => _syncSessionCatalog(controller),
                 ),
               ),
               const SizedBox(height: 10),
               Text(
-                '状态: ${controller.sessionState.name}  分组 ${controller.sessionGroups.length}  参数 ${controller.sessionParams.length}',
+                sessionSummary,
                 style: GoogleFonts.ibmPlexMono(
                   color: const Color(0xFF9DC1EB),
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                syncDetail,
+                style: GoogleFonts.ibmPlexSans(
+                  color: const Color(0xFFB7D4F3),
                   fontSize: 12,
                 ),
               ),
@@ -2009,6 +2020,57 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
         SizedBox(height: 640, child: _buildSettingsPage(controller)),
       ],
     );
+  }
+
+  String _buildSessionCatalogSummary(HmiController controller) {
+    return '设备 ${controller.deviceName}  状态 ${controller.sessionState.name}'
+        '  分组 ${controller.sessionGroups.length}'
+        '  参数 ${controller.sessionParams.length}'
+        '  已读 ${controller.sessionParamValues.length}';
+  }
+
+  String _buildSessionSyncDetail(HmiController controller) {
+    if (_paramsStatus.isNotEmpty) {
+      return _paramsStatus;
+    }
+    final detail = controller.statusMessage?.trim();
+    if (detail != null && detail.isNotEmpty) {
+      return '最近结果: $detail';
+    }
+    return '最近结果: 等待同步';
+  }
+
+  Future<void> _syncSessionCatalog(HmiController controller) async {
+    setState(() {
+      _paramsStatus = '正在同步 USART1 参数目录与当前值...';
+    });
+
+    await controller.syncSessionCatalog();
+    if (!mounted) {
+      return;
+    }
+
+    final detail = controller.statusMessage?.trim();
+    final result = switch (controller.sessionState) {
+      HmiSessionClientState.subscribed =>
+        '同步完成: ${controller.deviceName}，'
+            '分组 ${controller.sessionGroups.length}，'
+            '参数 ${controller.sessionParams.length}，'
+            '已读 ${controller.sessionParamValues.length}',
+      HmiSessionClientState.valuesReady ||
+      HmiSessionClientState.directoryReady =>
+        '同步部分完成: ${controller.deviceName}，'
+            '分组 ${controller.sessionGroups.length}，'
+            '参数 ${controller.sessionParams.length}，'
+            '${detail?.isNotEmpty == true ? detail : '推送订阅未完成'}',
+      HmiSessionClientState.degraded =>
+        '同步退化: ${detail?.isNotEmpty == true ? detail : '目录或参数读取未完成'}',
+      _ => '同步结束: ${detail?.isNotEmpty == true ? detail : controller.sessionState.name}',
+    };
+
+    setState(() {
+      _paramsStatus = result;
+    });
   }
 
   Widget _buildUsart1StatusPage(HmiController controller) {
@@ -2375,7 +2437,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     );
     if (!mounted) return;
     if (data != null) {
-      final running = data[1];
+      final running = data[0];
       final bootDone = data[2];
       setState(() {
         _sysInfoData = data;

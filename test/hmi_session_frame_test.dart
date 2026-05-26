@@ -69,4 +69,41 @@ void main() {
     expect(frames[0].command, HmiSessionCommand.hello);
     expect(frames[1].command, HmiSessionCommand.deviceInfo);
   });
+
+  test('stream decoder skips false 55 AA header with wrong protocol version', () {
+    final good = HmiSessionFrame(
+      type: HmiSessionFrameType.response,
+      sequence: 3,
+      command: HmiSessionCommand.hello,
+      payload: Uint8List.fromList(<int>[0x00, 0x01]),
+    ).encode();
+
+    // 模拟 Android 端混合日志流中的伪头：SOF 正确，但协议版本错误，
+    // 同时长度字段看起来合法，旧实现会错误地等待整段伪帧。
+    final noise = <int>[
+      0x5B,
+      0x49,
+      0x5D,
+      0x20,
+      0x55,
+      0xAA,
+      0x02,
+      0x41,
+      0x42,
+      0x43,
+      0x44,
+      0x45,
+      0x04,
+      0x00,
+      0x11,
+      0x22,
+    ];
+
+    final decoder = HmiSessionFrameDecoder();
+    final frames = decoder.pushBytes(<int>[...noise, ...good]);
+
+    expect(frames, hasLength(1));
+    expect(frames.single.command, HmiSessionCommand.hello);
+    expect(frames.single.sequence, 3);
+  });
 }
