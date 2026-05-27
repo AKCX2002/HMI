@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -74,96 +73,6 @@ List<int> _sessionLogFrame(String text) {
     command: HmiSessionCommand.logPush,
     payload: Uint8List.fromList(<int>[3, ...text.codeUnits]),
   ).encode();
-}
-
-List<int> _sessionResponseFrame({
-  required int sequence,
-  required HmiSessionCommand command,
-  required List<int> payload,
-}) {
-  return HmiSessionFrame(
-    type: HmiSessionFrameType.response,
-    sequence: sequence,
-    command: command,
-    payload: Uint8List.fromList(payload),
-  ).encode();
-}
-
-List<int> _groupCatalogPayload() {
-  final key = utf8.encode('motion');
-  final name = utf8.encode('步进运动参数');
-  return <int>[
-    0x00,
-    0x01,
-    0x01,
-    0x00,
-    0x01,
-    0x00,
-    0x01,
-    0x00,
-    0x00,
-    0x00,
-    key.length,
-    name.length,
-    ...key,
-    ...name,
-  ];
-}
-
-List<int> _paramCatalogPayload() {
-  final key = utf8.encode('bag_out_hz');
-  final name = utf8.encode('出袋轴频率');
-  final unit = utf8.encode('Hz');
-  return <int>[
-    0x00,
-    0x01,
-    0x01,
-    0x00,
-    0x10,
-    0x00,
-    0x01,
-    0x00,
-    0x03,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x40,
-    0x42,
-    0x0F,
-    0x00,
-    0x64,
-    0x00,
-    0x00,
-    0x00,
-    0x0A,
-    0x00,
-    0x00,
-    0x00,
-    key.length,
-    name.length,
-    unit.length,
-    ...key,
-    ...name,
-    ...unit,
-  ];
-}
-
-List<int> _paramValuesPayload() {
-  return <int>[
-    0x01,
-    0x10,
-    0x00,
-    0x20,
-    0x4E,
-    0x00,
-    0x00,
-  ];
 }
 
 void main() {
