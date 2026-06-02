@@ -49,7 +49,7 @@ class _HmiSerialConfigPageState extends State<HmiSerialConfigPage> {
                 onDisconnect: c.disconnectPortA,
               ),
               const SizedBox(height: 24),
-              _buildSectionTitle('端口 B — USART1 / HMI Session (DGUS 日志/参数)'),
+              _buildSectionTitle('端口 B — USART1 / HMIS-BAM Session'),
               const SizedBox(height: 10),
               _buildPortConfigCard(
                 config: c.portBConfig,

@@ -8,6 +8,7 @@ import '../../core/protocol/crc_algorithm.dart';
 import '../../core/protocol/hmi_frame.dart';
 import '../../core/serial/serial_transport.dart';
 import '../../util/log_exporter.dart';
+import 'hmi_hmis_bam.dart';
 import 'hmi_port_config.dart';
 import 'hmi_protocol.dart';
 import 'hmi_session_catalog.dart';
@@ -142,6 +143,8 @@ class _PortChannel {
   final SerialTransport transport;
   final List<int> rxBuffer = <int>[];
   final List<int> dgusRxBuffer = <int>[];
+  final HmisBamDecoder hmisBamDecoder = HmisBamDecoder();
+  final HmisBamFrameBuilder hmisBamBuilder = HmisBamFrameBuilder();
   final HmiSessionFrameDecoder sessionDecoder = HmiSessionFrameDecoder();
   final List<_DgusWaiter> dgusWaiters = <_DgusWaiter>[];
   final List<_SessionWaiter> sessionWaiters = <_SessionWaiter>[];
@@ -158,6 +161,7 @@ class _PortChannel {
   void resetBuffers() {
     rxBuffer.clear();
     dgusRxBuffer.clear();
+    hmisBamDecoder.reset();
     sessionDecoder.reset();
   }
 
@@ -263,6 +267,7 @@ class HmiController extends ChangeNotifier {
   HmiPortConfig _portBConfig;
   String? _statusMessage;
   HmiRetryPolicy _retryPolicy = const HmiRetryPolicy();
+  int _sessionNodeAddress = 0xFA;
 
   List<String> _portsA = <String>[];
   List<String> _portsB = <String>[];
@@ -299,6 +304,7 @@ class HmiController extends ChangeNotifier {
   String? get statusMessage => _statusMessage;
   String get deviceName => _deviceName;
   HmiRetryPolicy get retryPolicy => _retryPolicy;
+  int get sessionNodeAddress => _sessionNodeAddress;
   HmiSessionClientState get sessionState => _sessionState;
   bool get sessionHandshakeReady => _sessionHandshakeReady;
   bool get sessionQuickControlReady => isConnectedB && _sessionHandshakeReady;
@@ -429,6 +435,16 @@ class HmiController extends ChangeNotifier {
     _retryPolicy = policy;
     _statusMessage =
         '策略更新: 超时${policy.timeoutMs}ms, 重试${policy.maxRetries}次, 间隔${policy.retryIntervalMs}ms';
+    notifyListeners();
+  }
+
+  void setSessionNodeAddress(int value) {
+    final next = value & 0xFF;
+    if (_sessionNodeAddress == next) {
+      return;
+    }
+    _sessionNodeAddress = next;
+    _statusMessage = 'USART1 HMIS-BAM 节点地址: 0x${toHex2(next)}';
     notifyListeners();
   }
 
@@ -591,6 +607,16 @@ class HmiController extends ChangeNotifier {
     HmiCommandRequest request, {
     bool usePortB = false,
   }) async {
+    if (usePortB) {
+      final result = const CommandExecutionResult(
+        success: false,
+        message: '端口 B 仅支持 HMIS-BAM 会话协议',
+      );
+      _statusMessage = result.message;
+      notifyListeners();
+      return result;
+    }
+
     final channel = usePortB ? _channelB : _channelA;
     final transport = channel.transport;
     final config = channel.config;
@@ -1148,7 +1174,9 @@ class HmiController extends ChangeNotifier {
       return null;
     }
 
-    final maxAttempts = _retryPolicy.maxRetries <= 0 ? 1 : _retryPolicy.maxRetries;
+    final maxAttempts = _retryPolicy.maxRetries <= 0
+        ? 1
+        : _retryPolicy.maxRetries;
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       final seq = _sessionSeq;
       _sessionSeq = (_sessionSeq + 1) & 0xFFFF;
@@ -1172,7 +1200,16 @@ class HmiController extends ChangeNotifier {
 
       try {
         final encoded = frame.encode();
-        await transport.write(encoded);
+        final bamFrames = channel.hmisBamBuilder.encodePayload(
+          address: _sessionNodeAddress,
+          payload: encoded,
+        );
+        if (bamFrames.isEmpty) {
+          throw StateError('HMIS-BAM帧生成失败');
+        }
+        for (final bamFrame in bamFrames) {
+          await transport.write(bamFrame.encode());
+        }
         _appendSessionTx(frame, channel.config.label);
         final response = await waiter.completer.future.timeout(
           Duration(milliseconds: _retryPolicy.timeoutMs),
@@ -1613,10 +1650,21 @@ class HmiController extends ChangeNotifier {
 
   bool _consumeSessionFrames(Uint8List bytes, _PortChannel channel) {
     var changed = false;
-    final frames = channel.sessionDecoder.pushBytes(bytes);
-    for (final frame in frames) {
-      changed = true;
-      _appendSessionFrame(frame, channel.config.label);
+    final results = channel.hmisBamDecoder.pushBytes(bytes);
+    for (final result in results) {
+      final control = result.controlToSend;
+      if (control != null) {
+        unawaited(channel.transport.write(control.encode()));
+      }
+      final completed = result.completed;
+      if (completed == null) {
+        continue;
+      }
+      final frames = channel.sessionDecoder.pushBytes(completed.payload);
+      for (final frame in frames) {
+        changed = true;
+        _appendSessionFrame(frame, channel.config.label);
+      }
     }
     return changed;
   }

@@ -58,8 +58,8 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   String _sysInfoStatus = '';
   bool _sysInfoLoading = false;
 
-  /// 端口覆写开关：每个面板可独立选择物理串口发送命令
-  bool _packerUsePortB = false;
+  /// 打包机 20B 主协议固定走 USART3；USART1 仅承载 HMIS-BAM 会话。
+  final bool _packerUsePortB = false;
   final bool _dgusUsePortB = true;
 
   /// Port A 子标签页: 0=状态0x41, 1=封口0x43, 2=基础控制, 3=维护诊断, 4=电机点动
@@ -578,6 +578,8 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
         padding: const EdgeInsets.all(12),
         children: <Widget>[
           _buildSinglePortBar(controller, portA: false),
+          const SizedBox(height: 8),
+          _buildSessionNodeAddressBar(controller),
           const SizedBox(height: 12),
           _buildPortBPanel(controller),
           const SizedBox(height: 12),
@@ -619,6 +621,64 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
         onDisconnect: portA
             ? controller.disconnectPortA
             : controller.disconnectPortB,
+      ),
+    );
+  }
+
+  void _syncSessionNodeAddress(HmiController controller) {
+    controller.setSessionNodeAddress(
+      _safeHex(_packerNodeAddr.text, fallback: controller.sessionNodeAddress),
+    );
+  }
+
+  Widget _buildSessionNodeAddressBar(HmiController controller) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0D1A30),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFF233A62)),
+      ),
+      child: Row(
+        children: <Widget>[
+          Text(
+            'HMIS-BAM 节点',
+            style: GoogleFonts.ibmPlexSans(
+              color: const Color(0xFFA6C5EA),
+              fontSize: 11,
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 72,
+            height: 28,
+            child: TextField(
+              controller: _packerNodeAddr,
+              smartQuotesType: SmartQuotesType.disabled,
+              smartDashesType: SmartDashesType.disabled,
+              onChanged: (_) => _syncSessionNodeAddress(controller),
+              style: GoogleFonts.ibmPlexMono(
+                color: const Color(0xFFD6E9FF),
+                fontSize: 12,
+              ),
+              decoration: const InputDecoration(
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 6,
+                  vertical: 4,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            '当前 0x${toHex2(controller.sessionNodeAddress)}',
+            style: GoogleFonts.ibmPlexMono(
+              color: const Color(0xFF8FB6C8),
+              fontSize: 11,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -944,24 +1004,15 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
             ],
           ),
           const SizedBox(height: 10),
-          // ── 端口覆写 + 节点地址 ──
+          // ── 节点地址 ──
           Row(
             children: <Widget>[
               Text(
-                'TX:',
+                'TX: A',
                 style: GoogleFonts.ibmPlexSans(
                   color: const Color(0xFFA6C5EA),
                   fontSize: 11,
                 ),
-              ),
-              const SizedBox(width: 6),
-              _buildPortToggle(
-                labelA: 'A',
-                labelB: 'B',
-                value: _packerUsePortB,
-                onChanged: (v) => setState(() => _packerUsePortB = v),
-                connectedA: controller.isConnectedA,
-                connectedB: controller.isConnectedB,
               ),
               const SizedBox(width: 16),
               Text(
@@ -979,6 +1030,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                   controller: _packerNodeAddr,
                   smartQuotesType: SmartQuotesType.disabled,
                   smartDashesType: SmartDashesType.disabled,
+                  onChanged: (_) => _syncSessionNodeAddress(controller),
                   style: GoogleFonts.ibmPlexMono(
                     color: const Color(0xFFD6E9FF),
                     fontSize: 12,
@@ -1560,88 +1612,6 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     );
   }
 
-  /// 双端口选择开关：在 A/B 之间切换发送目标。
-  Widget _buildPortToggle({
-    required String labelA,
-    required String labelB,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-    required bool connectedA,
-    required bool connectedB,
-  }) {
-    return Container(
-      height: 28,
-      decoration: BoxDecoration(
-        color: const Color(0xFF0B1E3A),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: const Color(0xFF2A4F79)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          _toggleTab(
-            label: labelA,
-            selected: !value,
-            connected: connectedA,
-            onTap: () => onChanged(false),
-          ),
-          _toggleTab(
-            label: labelB,
-            selected: value,
-            connected: connectedB,
-            onTap: () => onChanged(true),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _toggleTab({
-    required String label,
-    required bool selected,
-    required bool connected,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-        decoration: BoxDecoration(
-          color: selected ? const Color(0xFF1B91D8) : Colors.transparent,
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Container(
-              width: 6,
-              height: 6,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: connected
-                    ? const Color(0xFF4CAF50)
-                    : const Color(0xFF666666),
-              ),
-            ),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: GoogleFonts.ibmPlexSans(
-                color: selected
-                    ? Colors.white
-                    : connected
-                    ? const Color(0xFF9AF9D3)
-                    : const Color(0xFF888888),
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _miniBtn(String label, bool enabled, VoidCallback? onPressed) {
     return SizedBox(
       height: 30,
@@ -2041,6 +2011,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   }
 
   Future<void> _syncSessionCatalog(HmiController controller) async {
+    _syncSessionNodeAddress(controller);
     setState(() {
       _paramsStatus = '正在同步 USART1 参数目录与当前值...';
     });
@@ -2065,7 +2036,8 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
             '${detail?.isNotEmpty == true ? detail : '推送订阅未完成'}',
       HmiSessionClientState.degraded =>
         '同步退化: ${detail?.isNotEmpty == true ? detail : '目录或参数读取未完成'}',
-      _ => '同步结束: ${detail?.isNotEmpty == true ? detail : controller.sessionState.name}',
+      _ =>
+        '同步结束: ${detail?.isNotEmpty == true ? detail : controller.sessionState.name}',
     };
 
     setState(() {
@@ -2244,7 +2216,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
           _buildUsart1SectionHeader(
             icon: Icons.terminal,
             title: '日志监控',
-            subtitle: '只显示端口 B 的 USART1 Session 日志与会话帧',
+            subtitle: '只显示端口 B 的 USART1 HMIS-BAM Session 日志与会话帧',
             trailing: Text(
               '${portBLogs.length} 条',
               style: GoogleFonts.ibmPlexMono(
@@ -2848,8 +2820,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
 
   /// 读取单个参数
   Future<void> _readParam(HmiController controller, int paramId) async {
+    _syncSessionNodeAddress(controller);
     final value = await controller.sendParamRead(
-      nodeAddress: 0xFA,
+      nodeAddress: controller.sessionNodeAddress,
       paramId: paramId,
     );
     if (!mounted) return;
@@ -2887,8 +2860,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
       );
       return;
     }
+    _syncSessionNodeAddress(controller);
     final result = await controller.sendParamWrite(
-      nodeAddress: 0xFA,
+      nodeAddress: controller.sessionNodeAddress,
       paramId: param.id,
       value: v,
     );
@@ -2922,6 +2896,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   /// 批量读取全部参数
   Future<void> _readAllParams(HmiController controller) async {
     try {
+      _syncSessionNodeAddress(controller);
       await controller.readAllSessionParams();
       final count = controller.sessionParamValues.length;
       final total = controller.sessionParams.length;
@@ -2943,7 +2918,10 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
 
   /// 保存到 EEPROM
   Future<void> _saveParams(HmiController controller) async {
-    final ok = await controller.sendParamSave(nodeAddress: 0xFA);
+    _syncSessionNodeAddress(controller);
+    final ok = await controller.sendParamSave(
+      nodeAddress: controller.sessionNodeAddress,
+    );
     if (mounted) {
       setState(() => _paramsStatus = ok ? '已保存到 EEPROM' : '保存失败');
     }
@@ -2972,8 +2950,9 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
       );
       if (confirmed != true) return;
     }
+    _syncSessionNodeAddress(controller);
     final ok = await controller.sendParamLoad(
-      nodeAddress: 0xFA,
+      nodeAddress: controller.sessionNodeAddress,
       action: action,
     );
     if (mounted) {
@@ -3218,7 +3197,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
-                                '暂无完整任务栈快照。新协议下，任务栈快照从 USART1 Session 日志解析：'
+                                '暂无完整任务栈快照。新协议下，任务栈快照从 USART1 HMIS-BAM Session 日志解析：'
                                 '收到 LOG_PUSH 中的 STACK_SNAPSHOT_BEGIN / STACK_TASK / '
                                 'STACK_SNAPSHOT_END 后会自动刷新。',
                                 style: GoogleFonts.ibmPlexSans(

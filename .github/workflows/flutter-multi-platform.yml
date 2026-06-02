@@ -32,6 +32,9 @@ jobs:
       - name: Dart analyze
         run: dart analyze
 
+      - name: HMIS-BAM protocol tests
+        run: flutter test test/hmi_hmis_bam_test.dart test/hmi_controller_port_routing_test.dart
+
       - name: Flutter test
         run: flutter test
 

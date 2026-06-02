@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hmi_host/core/protocol/hmi_frame.dart';
 import 'package:hmi_host/core/serial/serial_transport.dart';
 import 'package:hmi_host/features/hmi/hmi_controller.dart';
+import 'package:hmi_host/features/hmi/hmi_hmis_bam.dart';
 import 'package:hmi_host/features/hmi/hmi_port_config.dart';
 import 'package:hmi_host/features/hmi/hmi_protocol.dart';
 import 'package:hmi_host/features/hmi/hmi_session_frame.dart';
@@ -60,7 +61,8 @@ class _FakeSerialTransport implements SerialTransport {
   Stream<Uint8List> get incomingBytes => _incoming.stream;
 
   @override
-  Stream<SerialConnectionState> get connectionStates => _connectionStates.stream;
+  Stream<SerialConnectionState> get connectionStates =>
+      _connectionStates.stream;
 
   @override
   bool get isConnected => _connected;
@@ -82,39 +84,74 @@ List<int> _dgusLogFrame(String text) {
   return <int>[0x5A, 0xA5, bytes.length + 3, 0x82, 0x30, 0x00, ...bytes];
 }
 
+class _SessionBamPeer {
+  final HmisBamDecoder decoder = HmisBamDecoder();
+  final HmisBamFrameBuilder builder = HmisBamFrameBuilder();
+  int lastAddress = 0xFA;
+
+  HmiSessionFrame? acceptWrite(Uint8List bytes) {
+    for (final result in decoder.pushBytes(bytes)) {
+      final completed = result.completed;
+      if (completed == null) {
+        continue;
+      }
+      lastAddress = completed.address;
+      return HmiSessionFrame.tryDecode(completed.payload);
+    }
+    return null;
+  }
+
+  List<int> wrapSession(List<int> sessionFrame) {
+    return builder
+        .encodePayload(address: lastAddress, payload: sessionFrame)
+        .expand((frame) => frame.encode())
+        .toList();
+  }
+}
+
 List<int> _sessionLogFrame(String text) {
-  return HmiSessionFrame(
-    type: HmiSessionFrameType.log,
-    sequence: 1,
-    command: HmiSessionCommand.logPush,
-    payload: Uint8List.fromList(<int>[3, ...text.codeUnits]),
-  ).encode();
+  return _SessionBamPeer().wrapSession(
+    HmiSessionFrame(
+      type: HmiSessionFrameType.log,
+      sequence: 1,
+      command: HmiSessionCommand.logPush,
+      payload: Uint8List.fromList(<int>[3, ...text.codeUnits]),
+    ).encode(),
+  );
 }
 
 List<int> _sessionResponseFrame({
   required int sequence,
   required HmiSessionCommand command,
   required List<int> payload,
+  int address = 0xFA,
 }) {
-  return HmiSessionFrame(
-    type: HmiSessionFrameType.response,
-    sequence: sequence,
-    command: command,
-    payload: Uint8List.fromList(payload),
-  ).encode();
+  final peer = _SessionBamPeer()..lastAddress = address;
+  return peer.wrapSession(
+    HmiSessionFrame(
+      type: HmiSessionFrameType.response,
+      sequence: sequence,
+      command: command,
+      payload: Uint8List.fromList(payload),
+    ).encode(),
+  );
 }
 
 List<int> _sessionEventFrame({
   required HmiSessionCommand command,
   required List<int> payload,
   int sequence = 1,
+  int address = 0xFA,
 }) {
-  return HmiSessionFrame(
-    type: HmiSessionFrameType.event,
-    sequence: sequence,
-    command: command,
-    payload: Uint8List.fromList(payload),
-  ).encode();
+  final peer = _SessionBamPeer()..lastAddress = address;
+  return peer.wrapSession(
+    HmiSessionFrame(
+      type: HmiSessionFrameType.event,
+      sequence: sequence,
+      command: command,
+      payload: Uint8List.fromList(payload),
+    ).encode(),
+  );
 }
 
 void main() {
@@ -226,10 +263,11 @@ void main() {
     final transportA = _FakeSerialTransport();
     final transportB = _FakeSerialTransport();
     final controller = HmiController(transportA, transportB: transportB);
+    controller.setSessionNodeAddress(0x21);
 
+    final peer = _SessionBamPeer();
     transportB.onWrite = (bytes) async {
-      final frame = HmiSessionFrame.tryDecode(bytes.toList());
-      expect(frame, isNotNull);
+      final frame = peer.acceptWrite(bytes);
       if (frame == null) {
         return;
       }
@@ -239,6 +277,7 @@ void main() {
             sequence: frame.sequence,
             command: HmiSessionCommand.hello,
             payload: <int>[0x00, 0x01],
+            address: peer.lastAddress,
           ),
         );
       } else if (frame.command == HmiSessionCommand.controlRunState) {
@@ -247,6 +286,7 @@ void main() {
             sequence: frame.sequence,
             command: HmiSessionCommand.controlRunState,
             payload: <int>[0x00, 0x01, 0x00],
+            address: peer.lastAddress,
           ),
         );
       }
@@ -257,15 +297,17 @@ void main() {
     expect(ok, isTrue);
     expect(controller.sessionHandshakeReady, isTrue);
     expect(controller.sessionQuickControlReady, isTrue);
-    expect(transportB.writes, hasLength(2));
+    expect(transportB.writes.length, greaterThanOrEqualTo(3));
+    final decodedWrites = transportB.writes
+        .map((bytes) => HmiFrame.tryDecode(bytes))
+        .whereType<HmiFrame>()
+        .toList();
+    expect(decodedWrites, isNotEmpty);
     expect(
-      HmiSessionFrame.tryDecode(transportB.writes[0].toList())?.command,
-      HmiSessionCommand.hello,
+      decodedWrites.every((frame) => frame.function == hmisBamFunction),
+      isTrue,
     );
-    expect(
-      HmiSessionFrame.tryDecode(transportB.writes[1].toList())?.command,
-      HmiSessionCommand.controlRunState,
-    );
+    expect(decodedWrites.first.address, 0x21);
 
     controller.dispose();
     await transportA.dispose();
@@ -280,9 +322,9 @@ void main() {
       const HmiRetryPolicy(timeoutMs: 20, maxRetries: 1, retryIntervalMs: 0),
     );
 
+    final peer = _SessionBamPeer();
     transportB.onWrite = (bytes) async {
-      final frame = HmiSessionFrame.tryDecode(bytes.toList());
-      expect(frame, isNotNull);
+      final frame = peer.acceptWrite(bytes);
       if (frame == null) {
         return;
       }
@@ -292,6 +334,7 @@ void main() {
             command: HmiSessionCommand.eventPush,
             payload: <int>[0x01, 0x02, 0x03],
             sequence: 0x4321,
+            address: peer.lastAddress,
           ),
         );
       } else if (frame.command == HmiSessionCommand.controlRunState) {
@@ -300,6 +343,7 @@ void main() {
             sequence: frame.sequence,
             command: HmiSessionCommand.controlRunState,
             payload: <int>[0x00, 0x01, 0x00],
+            address: peer.lastAddress,
           ),
         );
       }
@@ -310,14 +354,15 @@ void main() {
     expect(ok, isTrue);
     expect(controller.sessionHandshakeReady, isTrue);
     expect(controller.sessionQuickControlReady, isTrue);
-    expect(transportB.writes, hasLength(2));
+    expect(transportB.writes.length, greaterThanOrEqualTo(3));
+    final decodedWrites = transportB.writes
+        .map((bytes) => HmiFrame.tryDecode(bytes))
+        .whereType<HmiFrame>()
+        .toList();
+    expect(decodedWrites, isNotEmpty);
     expect(
-      HmiSessionFrame.tryDecode(transportB.writes[0].toList())?.command,
-      HmiSessionCommand.hello,
-    );
-    expect(
-      HmiSessionFrame.tryDecode(transportB.writes[1].toList())?.command,
-      HmiSessionCommand.controlRunState,
+      decodedWrites.every((frame) => frame.function == hmisBamFunction),
+      isTrue,
     );
 
     controller.dispose();
@@ -330,9 +375,9 @@ void main() {
     final transportB = _FakeSerialTransport();
     final controller = HmiController(transportA, transportB: transportB);
 
+    final peer = _SessionBamPeer();
     transportB.onWrite = (bytes) async {
-      final frame = HmiSessionFrame.tryDecode(bytes.toList());
-      expect(frame, isNotNull);
+      final frame = peer.acceptWrite(bytes);
       if (frame == null) {
         return;
       }
@@ -343,6 +388,7 @@ void main() {
               sequence: frame.sequence,
               command: HmiSessionCommand.hello,
               payload: <int>[0x00, 0x01],
+              address: peer.lastAddress,
             ),
           );
         case HmiSessionCommand.deviceInfo:
@@ -351,6 +397,7 @@ void main() {
               sequence: frame.sequence,
               command: HmiSessionCommand.deviceInfo,
               payload: <int>[0x00, 0x02, 0x00, 0x00, 0x00],
+              address: peer.lastAddress,
             ),
           );
         case HmiSessionCommand.getGroupList:
@@ -359,6 +406,7 @@ void main() {
               sequence: frame.sequence,
               command: HmiSessionCommand.getGroupList,
               payload: <int>[0x00, 0x00, 0x00, 0x00],
+              address: peer.lastAddress,
             ),
           );
         case HmiSessionCommand.getParamList:
@@ -367,6 +415,7 @@ void main() {
               sequence: frame.sequence,
               command: HmiSessionCommand.getParamList,
               payload: <int>[0x00, 0x00, 0x00, 0x00],
+              address: peer.lastAddress,
             ),
           );
         default:
@@ -395,9 +444,9 @@ void main() {
 
     var helloWrites = 0;
     var deviceInfoWrites = 0;
+    final peer = _SessionBamPeer();
     transportB.onWrite = (bytes) async {
-      final frame = HmiSessionFrame.tryDecode(bytes.toList());
-      expect(frame, isNotNull);
+      final frame = peer.acceptWrite(bytes);
       if (frame == null) {
         return;
       }
@@ -409,6 +458,7 @@ void main() {
               sequence: frame.sequence,
               command: HmiSessionCommand.hello,
               payload: <int>[0x00, 0x01],
+              address: peer.lastAddress,
             ),
           );
         case HmiSessionCommand.deviceInfo:
@@ -419,6 +469,7 @@ void main() {
                 sequence: frame.sequence,
                 command: HmiSessionCommand.deviceInfo,
                 payload: <int>[0x00, 0x02, 0x00, 0x00, 0x00],
+                address: peer.lastAddress,
               ),
             );
           }
@@ -428,6 +479,7 @@ void main() {
               sequence: frame.sequence,
               command: HmiSessionCommand.getGroupList,
               payload: <int>[0x00, 0x00, 0x00, 0x00],
+              address: peer.lastAddress,
             ),
           );
         case HmiSessionCommand.getParamList:
@@ -436,6 +488,7 @@ void main() {
               sequence: frame.sequence,
               command: HmiSessionCommand.getParamList,
               payload: <int>[0x00, 0x00, 0x00, 0x00],
+              address: peer.lastAddress,
             ),
           );
         default:
@@ -460,8 +513,9 @@ void main() {
     final transportB = _FakeSerialTransport();
     final controller = HmiController(transportA, transportB: transportB);
 
+    final peer = _SessionBamPeer();
     transportB.onWrite = (bytes) async {
-      final frame = HmiSessionFrame.tryDecode(bytes.toList());
+      final frame = peer.acceptWrite(bytes);
       if (frame == null) {
         return;
       }
@@ -472,6 +526,7 @@ void main() {
               sequence: frame.sequence,
               command: HmiSessionCommand.hello,
               payload: <int>[0x00, 0x01],
+              address: peer.lastAddress,
             ),
           );
         case HmiSessionCommand.deviceInfo:
@@ -480,6 +535,7 @@ void main() {
               sequence: frame.sequence,
               command: HmiSessionCommand.deviceInfo,
               payload: <int>[0x00, 0x02, 0x00, 0x00, 0x00],
+              address: peer.lastAddress,
             ),
           );
         case HmiSessionCommand.getGroupList:
@@ -488,6 +544,7 @@ void main() {
               sequence: frame.sequence,
               command: HmiSessionCommand.getGroupList,
               payload: <int>[0x00, 0x00, 0x00, 0x00],
+              address: peer.lastAddress,
             ),
           );
         case HmiSessionCommand.getParamList:
@@ -496,6 +553,7 @@ void main() {
               sequence: frame.sequence,
               command: HmiSessionCommand.getParamList,
               payload: <int>[0x00, 0x00, 0x00, 0x00],
+              address: peer.lastAddress,
             ),
           );
         default:

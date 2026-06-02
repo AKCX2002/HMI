@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hmi_host/core/serial/serial_transport.dart';
 import 'package:hmi_host/features/hmi/hmi_controller.dart';
+import 'package:hmi_host/features/hmi/hmi_hmis_bam.dart';
 import 'package:hmi_host/features/hmi/hmi_session_frame.dart';
 import 'package:hmi_host/main.dart' show HmiHostApp;
 
@@ -53,7 +54,8 @@ class _FakeSerialTransport implements SerialTransport {
   bool get isConnected => _connected;
 
   @override
-  Stream<SerialConnectionState> get connectionStates => _connectionStates.stream;
+  Stream<SerialConnectionState> get connectionStates =>
+      _connectionStates.stream;
 
   @override
   Future<void> write(Uint8List bytes) async {
@@ -67,12 +69,16 @@ class _FakeSerialTransport implements SerialTransport {
 }
 
 List<int> _sessionLogFrame(String text) {
-  return HmiSessionFrame(
+  final session = HmiSessionFrame(
     type: HmiSessionFrameType.log,
     sequence: 1,
     command: HmiSessionCommand.logPush,
     payload: Uint8List.fromList(<int>[3, ...text.codeUnits]),
   ).encode();
+  return HmisBamFrameBuilder()
+      .encodePayload(address: 0xFA, payload: session)
+      .expand((frame) => frame.encode())
+      .toList();
 }
 
 void main() {
@@ -150,7 +156,9 @@ void main() {
     await transportB.dispose();
   });
 
-  testWidgets('栈统计空态按 USART1 Session 日志口径提示', (WidgetTester tester) async {
+  testWidgets('栈统计空态按 USART1 HMIS-BAM Session 日志口径提示', (
+    WidgetTester tester,
+  ) async {
     final transportA = _FakeSerialTransport();
     final transportB = _FakeSerialTransport();
     final controller = HmiController(transportA, transportB: transportB);
@@ -160,7 +168,7 @@ void main() {
     await tester.tap(find.text('栈水位统计').last);
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('USART1 Session 日志'), findsOneWidget);
+    expect(find.textContaining('USART1 HMIS-BAM Session 日志'), findsOneWidget);
     expect(find.textContaining('等待固件输出 STACK_SNAPSHOT'), findsNothing);
 
     controller.dispose();
