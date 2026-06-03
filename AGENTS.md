@@ -8,7 +8,7 @@
 
 ## 2. Source-of-Truth Documents
 
-- 设备与协议主文档: [doc/下位机系统说明书.md](/C:/Users/USER/Documents/dev/HMI/doc/下位机系统说明书.md)
+- 固件协议主文档: [`../Packaging_machine_V1.0/doc/打包机上位主控系统说明书.md`](../Packaging_machine_V1.0/doc/打包机上位主控系统说明书.md)（固件端权威协议规范）
 - 协议速查: [doc/协议对接快速指南.md](/C:/Users/USER/Documents/dev/HMI/doc/协议对接快速指南.md)
 - 架构说明: [doc/架构说明.md](/C:/Users/USER/Documents/dev/HMI/doc/架构说明.md)
 - 界面参考: [doc/界面参考说明.md](/C:/Users/USER/Documents/dev/HMI/doc/界面参考说明.md)
