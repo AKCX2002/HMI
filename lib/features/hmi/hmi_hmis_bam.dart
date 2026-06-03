@@ -120,9 +120,17 @@ class HmisBamFrameBuilder {
 }
 
 class HmisBamDecoder {
-  HmisBamDecoder({this.crcAlgorithm = CrcAlgorithm.modbus});
+  HmisBamDecoder({
+    this.crcAlgorithm = CrcAlgorithm.modbus,
+    this.rxTimeout = const Duration(milliseconds: 3000),
+  });
 
   final CrcAlgorithm crcAlgorithm;
+
+  /// 接收超时：若活动事务在超过 [rxTimeout] 时长内未收全所有分片，
+  /// 解码器将自动重置并丢弃当前事务，为下一个 BAM 事务腾出空间。
+  final Duration rxTimeout;
+
   final List<int> _rxBuffer = <int>[];
   final List<int> _payload = List<int>.filled(hmisBamMaxPayloadSize, 0);
   final Set<int> _receivedFragments = <int>{};
@@ -131,10 +139,44 @@ class HmisBamDecoder {
   int _fragmentCount = 0;
   int _totalLength = 0;
   int _address = 0;
+  DateTime _activeStartTime = DateTime.now();
+
+  /// 是否正在接收 BAM 分片事务。
+  bool get isActive => _active;
 
   void reset() {
     _rxBuffer.clear();
     _resetTransaction();
+  }
+
+  /// 检查当前活动事务是否超时。
+  ///
+  /// 应在每次收到数据时调用，或由上一层周期性调用。
+  /// 若超时则自动重置事务并返回带有超时信息的解码结果。
+  ///
+  /// [now] 可选，默认为当前时刻。
+  HmisBamDecodeResult? checkTimeout({DateTime? now}) {
+    if (!_active) {
+      return null;
+    }
+    final effectiveNow = now ?? DateTime.now();
+    if (effectiveNow.difference(_activeStartTime) < rxTimeout) {
+      return null;
+    }
+    final timedOutSessionId = _sessionId;
+    final timedOutAddress = _address;
+    _resetTransaction();
+    return HmisBamDecodeResult(
+      consumed: true,
+      controlToSend: HmisBamFrameBuilder(crcAlgorithm: crcAlgorithm)
+          .buildControl(
+        address: timedOutAddress,
+        sessionId: timedOutSessionId,
+        controlIndex: hmisBamFragIndexNack,
+        status: HmisBamControlStatus.timeout,
+        detail: 0xFF,
+      ),
+    );
   }
 
   List<HmisBamDecodeResult> pushBytes(Iterable<int> bytes) {
@@ -172,6 +214,11 @@ class HmisBamDecoder {
 
     if (fragmentIndex == hmisBamFragIndexAck ||
         fragmentIndex == hmisBamFragIndexNack) {
+      // ACK/NACK 控制帧：若 session_id 与当前活动事务匹配，则清理事务。
+      // 否则仅标记 consumed（可能是设备对旧事务的延迟响应）。
+      if (_active && sessionId == _sessionId) {
+        _resetTransaction();
+      }
       return const HmisBamDecodeResult(consumed: true);
     }
 
@@ -223,6 +270,7 @@ class HmisBamDecoder {
 
     if (!_active) {
       _active = true;
+      _activeStartTime = DateTime.now();
       _sessionId = sessionId;
       _fragmentCount = fragmentCount;
       _address = frame.address;

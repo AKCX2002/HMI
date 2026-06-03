@@ -230,6 +230,12 @@ class HmiController extends ChangeNotifier {
     _connectionSubscriptionB = _transportB.connectionStates.listen(
       (state) => _onTransportStateChanged(_channelB, state),
     );
+
+    // 周期性检查 BAM 接收超时（分片丢失等情况），避免解码器永久卡在活跃状态。
+    _bamTimeoutTimer = Timer.periodic(
+      const Duration(milliseconds: 500),
+      (_) => _onBamTimeoutCheck(),
+    );
   }
 
   final SerialTransport _transportA;
@@ -241,6 +247,7 @@ class HmiController extends ChangeNotifier {
   StreamSubscription<Uint8List>? _subscriptionB;
   StreamSubscription<SerialConnectionState>? _connectionSubscriptionA;
   StreamSubscription<SerialConnectionState>? _connectionSubscriptionB;
+  Timer? _bamTimeoutTimer;
 
   static const int _diskFlushBatchSize = 40;
   static const int _maxInMemoryLogs = 5000;
@@ -1391,6 +1398,23 @@ class HmiController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _onBamTimeoutCheck() {
+    var changed = false;
+    for (final channel in <_PortChannel>[_channelA, _channelB]) {
+      final result = channel.hmisBamDecoder.checkTimeout();
+      if (result != null) {
+        changed = true;
+        final control = result.controlToSend;
+        if (control != null) {
+          unawaited(channel.transport.write(control.encode()));
+        }
+      }
+    }
+    if (changed) {
+      notifyListeners();
+    }
+  }
+
   bool _isSessionEpochCurrent(int epoch) {
     return epoch == _sessionEpoch && _transportB.isConnected;
   }
@@ -2099,6 +2123,8 @@ class HmiController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _bamTimeoutTimer?.cancel();
+    _bamTimeoutTimer = null;
     unawaited(_flushLogsToDisk());
     unawaited(_flushStackSnapshotsToDisk());
     try {
