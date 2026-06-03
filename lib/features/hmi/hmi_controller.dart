@@ -607,6 +607,23 @@ class HmiController extends ChangeNotifier {
     }
   }
 
+  Future<void> _writeSerial(SerialTransport transport, Uint8List bytes) async {
+    try {
+      await _txChain;
+    } catch (_) {}
+
+    final done = Completer<void>();
+    _txChain = done.future;
+
+    try {
+      await transport.write(bytes);
+      done.complete();
+    } catch (error) {
+      done.complete();
+      rethrow;
+    }
+  }
+
   // ────────────── 命令执行 ──────────────
 
   /// 发送命令帧，不等待响应。
@@ -649,19 +666,11 @@ class HmiController extends ChangeNotifier {
       crcAlgorithm: request.frame.crcAlgorithm,
     );
 
-    // 串行化写入，避免并发写串口
     try {
-      await _txChain;
-    } catch (_) {}
-    final done = Completer<void>();
-    _txChain = done.future;
-
-    try {
-      await transport.write(frameWithCrc.encode());
+      await _writeSerial(transport, frameWithCrc.encode());
       _appendLog('TX', frameWithCrc, note: request.note, portLabel: portLabel);
       _statusMessage = '${request.label}已发送';
       notifyListeners();
-      done.complete();
       return CommandExecutionResult(
         success: true,
         message: '${request.label}已发送',
@@ -669,7 +678,6 @@ class HmiController extends ChangeNotifier {
     } catch (error) {
       _statusMessage = '${request.label}发送失败: $error';
       notifyListeners();
-      done.complete();
       return CommandExecutionResult(success: false, message: '发送失败: $error');
     }
   }
@@ -1218,7 +1226,7 @@ class HmiController extends ChangeNotifier {
           throw StateError('HMIS-BAM帧生成失败');
         }
         for (final bamFrame in bamFrames) {
-          await transport.write(bamFrame.encode());
+          await _writeSerial(transport, bamFrame.encode());
         }
         _appendSessionTx(frame, channel.config.label);
         final response = await waiter.completer.future.timeout(
@@ -1409,7 +1417,7 @@ class HmiController extends ChangeNotifier {
         changed = true;
         final control = result.controlToSend;
         if (control != null) {
-          unawaited(channel.transport.write(control.encode()));
+          unawaited(_writeSerial(channel.transport, control.encode()));
         }
       }
     }
@@ -1681,7 +1689,7 @@ class HmiController extends ChangeNotifier {
     for (final result in results) {
       final control = result.controlToSend;
       if (control != null) {
-        unawaited(channel.transport.write(control.encode()));
+        unawaited(_writeSerial(channel.transport, control.encode()));
       }
       final completed = result.completed;
       if (completed == null) {
@@ -1844,6 +1852,7 @@ class HmiController extends ChangeNotifier {
       }
     }
 
+    final decoded = _decodeSessionFrame(frame, raw, textPayload);
     final placeholder = HmiFrame(
       address: HmiSessionFrame.sof0,
       function: frame.command.value,
@@ -1859,17 +1868,157 @@ class HmiController extends ChangeNotifier {
       direction: frame.type == HmiSessionFrameType.response ? 'RX' : 'EVENT',
       frame: placeholder,
       timestamp: DateTime.now(),
-      decoded: HmiDecodedFrame(
-        title: 'USART1会话 CMD=0x${toHex2(frame.command.value)}',
-        summary: textPayload.isEmpty ? raw : textPayload,
-        rawDataHex: raw,
-      ),
+      decoded: decoded,
       portLabel: portLabel,
       rawLineOverride: 'SESSION=${frame.rawHex}',
     );
     _logs.insert(0, entry);
     _trimInMemoryLogsIfNeeded();
     _enqueueLogLineForDisk(_toJsonLine(entry));
+  }
+
+  HmiDecodedFrame _decodeSessionFrame(
+    HmiSessionFrame frame,
+    String raw,
+    String textPayload,
+  ) {
+    final title =
+        'USART1会话 ${frame.type == HmiSessionFrameType.response ? "CMD" : frame.type.name.toUpperCase()}=0x${toHex2(frame.command.value)}';
+    final payload = frame.payload;
+
+    String fallbackSummary() => textPayload.isEmpty ? raw : textPayload;
+
+    switch (frame.command) {
+      case HmiSessionCommand.hello:
+        if (payload.length >= 2) {
+          return HmiDecodedFrame(
+            title: title,
+            summary: 'HELLO result=${payload[0]} ver=${payload[1]}',
+            rawDataHex: raw,
+            errorCode: (frame.flags & HmiSessionFlags.error) != 0
+                ? payload[0]
+                : null,
+          );
+        }
+      case HmiSessionCommand.deviceInfo:
+        if (payload.length >= 5) {
+          final name = payload.length > 5 ? utf8.decode(payload.sublist(5)) : '';
+          final caps = payload[3] | (payload[4] << 8);
+          return HmiDecodedFrame(
+            title: title,
+            summary:
+                'DEVICE_INFO result=${payload[0]} ver=${payload[1]}.${payload[2]} caps=0x${caps.toRadixString(16).padLeft(4, '0').toUpperCase()}'
+                '${name.isEmpty ? "" : " name=$name"}',
+            rawDataHex: raw,
+            errorCode: (frame.flags & HmiSessionFlags.error) != 0
+                ? payload[0]
+                : null,
+          );
+        }
+      case HmiSessionCommand.getGroupList:
+        try {
+          final page = parseGroupCatalogPage(payload);
+          return HmiDecodedFrame(
+            title: title,
+            summary:
+                'GROUP_LIST count=${page.groups.length}/${page.totalCount} next=${page.nextOffset}'
+                '${page.groups.isEmpty ? "" : " first=${page.groups.first.groupKey}/${page.groups.first.groupName}"}',
+            rawDataHex: raw,
+          );
+        } on FormatException {
+          break;
+        }
+      case HmiSessionCommand.getParamList:
+        try {
+          final page = parseParamCatalogPage(payload);
+          return HmiDecodedFrame(
+            title: title,
+            summary:
+                'PARAM_LIST count=${page.params.length}/${page.totalCount} next=${page.nextOffset}'
+                '${page.params.isEmpty ? "" : " first=${page.params.first.paramKey}/${page.params.first.paramName}"}',
+            rawDataHex: raw,
+          );
+        } on FormatException {
+          break;
+        }
+      case HmiSessionCommand.getParamValuesBatch:
+        if (payload.isNotEmpty) {
+          return HmiDecodedFrame(
+            title: title,
+            summary: 'PARAM_VALUES count=${payload[0]}',
+            rawDataHex: raw,
+            errorCode: (frame.flags & HmiSessionFlags.error) != 0
+                ? payload[0]
+                : null,
+          );
+        }
+      case HmiSessionCommand.subscribeStreams:
+      case HmiSessionCommand.unsubscribeStreams:
+        if (payload.length >= 2) {
+          return HmiDecodedFrame(
+            title: title,
+            summary:
+                '${frame.command == HmiSessionCommand.subscribeStreams ? "SUBSCRIBE" : "UNSUBSCRIBE"} result=${payload[0]} mask=0x${toHex2(payload[1])}',
+            rawDataHex: raw,
+            errorCode: (frame.flags & HmiSessionFlags.error) != 0
+                ? payload[0]
+                : null,
+          );
+        }
+      case HmiSessionCommand.getDeviceStatus:
+        if (payload.length >= 12) {
+          return HmiDecodedFrame(
+            title: title,
+            summary:
+                'STATUS result=${payload[0]} run=${payload[1]} busy=0x${toHex2(payload[3])} boot=${payload[8]} stop_pending=${payload[9]} alarm=0x${toHex2(payload[10])}',
+            rawDataHex: raw,
+            errorCode: (frame.flags & HmiSessionFlags.error) != 0
+                ? payload[0]
+                : null,
+          );
+        }
+      case HmiSessionCommand.getAlarmStatus:
+        if (payload.length >= 3) {
+          return HmiDecodedFrame(
+            title: title,
+            summary:
+                'ALARM result=${payload[0]} code=0x${toHex2(payload[1])} latched=${payload[2]}',
+            rawDataHex: raw,
+            errorCode: (frame.flags & HmiSessionFlags.error) != 0
+                ? payload[0]
+                : null,
+          );
+        }
+      case HmiSessionCommand.eventPush:
+        if (payload.length >= 3) {
+          final event = _parseSessionEvent(payload);
+          return HmiDecodedFrame(
+            title: title,
+            summary: event.summary,
+            rawDataHex: raw,
+          );
+        }
+      case HmiSessionCommand.stackSnapshotPush:
+        try {
+          final snapshot = parseStackSnapshotPush(payload);
+          return HmiDecodedFrame(
+            title: title,
+            summary:
+                'STACK_SNAPSHOT tasks=${snapshot.tasks.length} riskiest=${snapshot.summary.riskiestTaskName} free=${snapshot.summary.totalFreeWords}',
+            rawDataHex: raw,
+          );
+        } on FormatException {
+          break;
+        }
+      default:
+        break;
+    }
+
+    return HmiDecodedFrame(
+      title: title,
+      summary: fallbackSummary(),
+      rawDataHex: raw,
+    );
   }
 
   HmiSessionEventEntry _parseSessionEvent(Uint8List payload) {

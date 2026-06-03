@@ -8,6 +8,7 @@ import 'package:hmi_host/features/hmi/hmi_controller.dart';
 import 'package:hmi_host/features/hmi/hmi_hmis_bam.dart';
 import 'package:hmi_host/features/hmi/hmi_port_config.dart';
 import 'package:hmi_host/features/hmi/hmi_protocol.dart';
+import 'package:hmi_host/features/hmi/hmi_session_catalog.dart';
 import 'package:hmi_host/features/hmi/hmi_session_frame.dart';
 
 class _FakeSerialTransport implements SerialTransport {
@@ -147,6 +148,24 @@ List<int> _sessionEventFrame({
   return peer.wrapSession(
     HmiSessionFrame(
       type: HmiSessionFrameType.event,
+      sequence: sequence,
+      command: command,
+      payload: Uint8List.fromList(payload),
+    ).encode(),
+  );
+}
+
+List<HmiFrame> _buildSessionBamFrames(
+  _SessionBamPeer peer, {
+  required HmiSessionFrameType type,
+  required int sequence,
+  required HmiSessionCommand command,
+  required List<int> payload,
+}) {
+  return peer.builder.encodePayload(
+    address: peer.lastAddress,
+    payload: HmiSessionFrame(
+      type: type,
       sequence: sequence,
       command: command,
       payload: Uint8List.fromList(payload),
@@ -322,6 +341,37 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     expect(controller.logs, isEmpty);
+
+    controller.dispose();
+    await transportA.dispose();
+    await transportB.dispose();
+  });
+
+  test('端口 B 的 DEVICE_INFO 响应会输出结构化摘要', () async {
+    final transportA = _FakeSerialTransport();
+    final transportB = _FakeSerialTransport();
+    final controller = HmiController(transportA, transportB: transportB);
+
+    transportB.emit(
+      _sessionResponseFrame(
+        sequence: 2,
+        command: HmiSessionCommand.deviceInfo,
+        payload: <int>[
+          0x00,
+          0x02,
+          0x00,
+          0xFF,
+          0x3F,
+          ...'PACKER V1.0'.codeUnits,
+        ],
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.logs, hasLength(1));
+    expect(controller.logs.first.decoded.summary, contains('DEVICE_INFO'));
+    expect(controller.logs.first.decoded.summary, contains('caps=0x3FFF'));
+    expect(controller.logs.first.decoded.summary, contains('name=PACKER V1.0'));
 
     controller.dispose();
     await transportA.dispose();
@@ -702,6 +752,34 @@ void main() {
     await transportB.dispose();
   });
 
+  test('端口 B 收到结构化栈快照推送时输出摘要并更新总览', () async {
+    final transportA = _FakeSerialTransport();
+    final transportB = _FakeSerialTransport();
+    final controller = HmiController(transportA, transportB: transportB);
+
+    transportB.emit(
+      _sessionEventFrame(
+        command: HmiSessionCommand.stackSnapshotPush,
+        payload: <int>[
+          0x02,
+          0x01, 0x80, 0x01, 0x40, 0x01,
+          0x06, 0x40, 0x02, 0xB4, 0x00,
+        ],
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.latestStackSnapshot, isNotNull);
+    expect(controller.latestStackSnapshot!.tasks, hasLength(2));
+    expect(controller.logs, isNotEmpty);
+    expect(controller.logs.first.decoded.summary, contains('STACK_SNAPSHOT'));
+    expect(controller.logs.first.decoded.summary, contains('riskiest=MonitorTask'));
+
+    controller.dispose();
+    await transportA.dispose();
+    await transportB.dispose();
+  });
+
   test('控制器只保留有限数量的结构化栈快照，避免长期运行内存增长', () async {
     final transportA = _FakeSerialTransport();
     final transportB = _FakeSerialTransport();
@@ -727,6 +805,180 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     expect(controller.stackSnapshots.length, lessThanOrEqualTo(240));
+
+    controller.dispose();
+    await transportA.dispose();
+    await transportB.dispose();
+  });
+
+  test('BAM 自动 ACK 与后续请求按同一发送链串行，避免目录同步卡在 BUSY', () async {
+    final transportA = _FakeSerialTransport();
+    final transportB = _FakeSerialTransport();
+    final controller = HmiController(transportA, transportB: transportB);
+    final peer = _SessionBamPeer();
+    int? pendingAckSessionId;
+    final deviceName = 'PACKER V1.0'.codeUnits;
+    final groupKey = 'diag'.codeUnits;
+    final groupName = 'diag_grp'.codeUnits;
+    final paramKey = 'p001'.codeUnits;
+    final paramName = 'param_1'.codeUnits;
+    final paramUnit = 'ms'.codeUnits;
+
+    transportB.onWrite = (bytes) async {
+      final rawFrame = HmiFrame.tryDecode(bytes);
+      if (rawFrame != null &&
+          rawFrame.function == hmisBamFunction &&
+          rawFrame.data[1] == hmisBamFragIndexAck) {
+        if (pendingAckSessionId == rawFrame.data[0]) {
+          pendingAckSessionId = null;
+        }
+        return;
+      }
+
+      final frame = peer.acceptWrite(bytes);
+      if (frame == null) {
+        return;
+      }
+
+      // 模拟固件 BAM 单缓冲：上一笔 TX 的 ACK 未到前，不接受下一笔请求。
+      if (pendingAckSessionId != null) {
+        return;
+      }
+
+      List<HmiFrame> responseFrames;
+      switch (frame.command) {
+        case HmiSessionCommand.hello:
+          responseFrames = _buildSessionBamFrames(
+            peer,
+            type: HmiSessionFrameType.response,
+            sequence: frame.sequence,
+            command: HmiSessionCommand.hello,
+            payload: <int>[0x00, 0x01],
+          );
+        case HmiSessionCommand.deviceInfo:
+          responseFrames = _buildSessionBamFrames(
+            peer,
+            type: HmiSessionFrameType.response,
+            sequence: frame.sequence,
+            command: HmiSessionCommand.deviceInfo,
+            payload: <int>[
+              0x00,
+              0x02,
+              0x00,
+              0xFF,
+              0x3F,
+              ...deviceName,
+            ],
+          );
+        case HmiSessionCommand.getGroupList:
+          responseFrames = _buildSessionBamFrames(
+            peer,
+            type: HmiSessionFrameType.response,
+            sequence: frame.sequence,
+            command: HmiSessionCommand.getGroupList,
+            payload: <int>[
+              0x00,
+              0x01,
+              0x01,
+              0x00,
+              0x01,
+              0x00,
+              0x01,
+              0x00,
+              0x00,
+              0x00,
+              0x04,
+              groupName.length,
+              ...groupKey,
+              ...groupName,
+            ],
+          );
+        case HmiSessionCommand.getParamList:
+          final paramPayload = <int>[
+            0x00,
+            0x01,
+            0x01,
+            0x00,
+            0x01,
+            0x00,
+            0x01,
+            0x00,
+            HmiSessionParamType.u32.wireValue,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x64,
+            0x00,
+            0x00,
+            0x00,
+            0x32,
+            0x00,
+            0x00,
+            0x00,
+            0x01,
+            0x00,
+            0x00,
+            0x00,
+            paramKey.length,
+            paramName.length,
+            paramUnit.length,
+            ...paramKey,
+            ...paramName,
+            ...paramUnit,
+          ];
+          responseFrames = _buildSessionBamFrames(
+            peer,
+            type: HmiSessionFrameType.response,
+            sequence: frame.sequence,
+            command: HmiSessionCommand.getParamList,
+            payload: paramPayload,
+          );
+        case HmiSessionCommand.getParamValuesBatch:
+          responseFrames = _buildSessionBamFrames(
+            peer,
+            type: HmiSessionFrameType.response,
+            sequence: frame.sequence,
+            command: HmiSessionCommand.getParamValuesBatch,
+            payload: <int>[
+              0x01,
+              0x01,
+              0x00,
+              0x34,
+              0x12,
+              0x00,
+              0x00,
+            ],
+          );
+        case HmiSessionCommand.subscribeStreams:
+          responseFrames = _buildSessionBamFrames(
+            peer,
+            type: HmiSessionFrameType.response,
+            sequence: frame.sequence,
+            command: HmiSessionCommand.subscribeStreams,
+            payload: <int>[0x00, 0x07],
+          );
+        default:
+          return;
+      }
+      pendingAckSessionId = responseFrames.first.data[0];
+      transportB.emit(responseFrames.expand((item) => item.encode()).toList());
+    };
+
+    controller.setPortB('FAKE');
+    await controller.connectPortB();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(controller.sessionHandshakeReady, isTrue);
+    expect(controller.sessionState, HmiSessionClientState.subscribed);
+    expect(controller.sessionSubscriptionMask, 0x07);
+    expect(controller.sessionGroups, hasLength(1));
+    expect(controller.sessionParams, hasLength(1));
+    expect(controller.sessionParamValues[1], 0x1234);
 
     controller.dispose();
     await transportA.dispose();
