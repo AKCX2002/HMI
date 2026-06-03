@@ -244,6 +244,75 @@ void main() {
     await transportB.dispose();
   });
 
+  test('端口 B 会话请求日志不再伪装成 20B ADDR/FUNC 帧', () async {
+    final transportA = _FakeSerialTransport();
+    final transportB = _FakeSerialTransport();
+    final controller = HmiController(transportA, transportB: transportB);
+    final peer = _SessionBamPeer();
+
+    transportB.onWrite = (bytes) async {
+      final frame = peer.acceptWrite(bytes);
+      if (frame == null) {
+        return;
+      }
+      switch (frame.command) {
+        case HmiSessionCommand.hello:
+          transportB.emit(
+            _sessionResponseFrame(
+              sequence: frame.sequence,
+              command: HmiSessionCommand.hello,
+              payload: <int>[0x00, 0x01],
+              address: peer.lastAddress,
+            ),
+          );
+        case HmiSessionCommand.deviceInfo:
+          transportB.emit(
+            _sessionResponseFrame(
+              sequence: frame.sequence,
+              command: HmiSessionCommand.deviceInfo,
+              payload: <int>[0x00, 0x02, 0x00, 0x00, 0x00],
+              address: peer.lastAddress,
+            ),
+          );
+        case HmiSessionCommand.getGroupList:
+          transportB.emit(
+            _sessionResponseFrame(
+              sequence: frame.sequence,
+              command: HmiSessionCommand.getGroupList,
+              payload: <int>[0x00, 0x00, 0x00, 0x00],
+              address: peer.lastAddress,
+            ),
+          );
+        case HmiSessionCommand.getParamList:
+          transportB.emit(
+            _sessionResponseFrame(
+              sequence: frame.sequence,
+              command: HmiSessionCommand.getParamList,
+              payload: <int>[0x00, 0x00, 0x00, 0x00],
+              address: peer.lastAddress,
+            ),
+          );
+        default:
+          break;
+      }
+    };
+
+    controller.setPortB('FAKE');
+    await controller.connectPortB();
+    await Future<void>.delayed(Duration.zero);
+
+    final request = peer.acceptWrite(transportB.writes.first);
+    expect(request, isNotNull);
+
+    expect(controller.logs, isNotEmpty);
+    expect(controller.logs.first.pretty, contains('SESSION=55 AA'));
+    expect(controller.logs.first.pretty, isNot(contains('ADDR=0x55 FUNC=0x01')));
+
+    controller.dispose();
+    await transportA.dispose();
+    await transportB.dispose();
+  });
+
   test('端口 B 不再消费 DGUS 日志帧', () async {
     final transportA = _FakeSerialTransport();
     final transportB = _FakeSerialTransport();

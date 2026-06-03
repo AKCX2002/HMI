@@ -24,6 +24,7 @@ class HmiLogEntry {
     this.note,
     this.attempt,
     this.portLabel = '',
+    this.rawLineOverride,
   });
 
   final String direction;
@@ -33,12 +34,14 @@ class HmiLogEntry {
   final String? note;
   final int? attempt;
   final String portLabel;
+  final String? rawLineOverride;
 
   String get pretty {
     final port = portLabel.isNotEmpty ? ' [$portLabel]' : '';
     final timeTag = DateFormat('yyyy-MM-dd HH:mm:ss.SSS').format(timestamp);
     final base = '[$timeTag]$port [$direction]';
     final payloadLine =
+        rawLineOverride ??
         'ADDR=0x${toHex2(frame.address)} FUNC=0x${toHex2(frame.function)} DATA=${payloadToHex(frame.data)}';
     final decodePart = '${decoded.title} ${decoded.summary}';
     final attemptPart = attempt == null ? '' : ' (尝试#$attempt)';
@@ -1862,6 +1865,7 @@ class HmiController extends ChangeNotifier {
         rawDataHex: raw,
       ),
       portLabel: portLabel,
+      rawLineOverride: 'SESSION=${frame.rawHex}',
     );
     _logs.insert(0, entry);
     _trimInMemoryLogsIfNeeded();
@@ -1910,6 +1914,7 @@ class HmiController extends ChangeNotifier {
         rawDataHex: frame.rawHex,
       ),
       portLabel: portLabel,
+      rawLineOverride: 'SESSION=${frame.rawHex}',
     );
     _logs.insert(0, entry);
     _trimInMemoryLogsIfNeeded();

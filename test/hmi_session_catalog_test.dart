@@ -82,6 +82,21 @@ void main() {
     expect(param.unit, 'Hz');
   });
 
+  test('parameter catalog parser rejects 27-byte truncated records', () {
+    final payload = Uint8List.fromList(<int>[
+      0x00,
+      0x01,
+      0x01,
+      0x00,
+      ...List<int>.filled(27, 0x00),
+    ]);
+
+    expect(
+      () => parseParamCatalogPage(payload),
+      throwsA(isA<FormatException>()),
+    );
+  });
+
   test('parses stack snapshot push payload', () {
     final payload = Uint8List.fromList(<int>[
       0x02,

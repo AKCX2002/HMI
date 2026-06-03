@@ -204,7 +204,7 @@ HmiSessionParamCatalogPage parseParamCatalogPage(Uint8List payload) {
   final params = <HmiSessionParamDef>[];
 
   for (var i = 0; i < count; i++) {
-    if (cursor + 27 > payload.length) {
+    if (cursor + 28 > payload.length) {
       throw const FormatException('truncated param record');
     }
     final paramId = _readU16(payload, cursor);
