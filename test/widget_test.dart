@@ -85,14 +85,14 @@ void main() {
   testWidgets('HMI dashboard renders title', (WidgetTester tester) async {
     final transportA = _FakeSerialTransport();
     final transportB = _FakeSerialTransport();
-    final app = HmiHostApp(
-      controller: HmiController(transportA, transportB: transportB),
-    );
+    final controller = HmiController(transportA, transportB: transportB);
+    final app = HmiHostApp(controller: controller);
     await tester.pumpWidget(app);
 
     expect(find.text('打包机'), findsOneWidget);
     expect(find.text('USART3调试'), findsOneWidget);
 
+    controller.dispose();
     await transportA.dispose();
     await transportB.dispose();
   });
@@ -102,9 +102,8 @@ void main() {
   ) async {
     final transportA = _FakeSerialTransport();
     final transportB = _FakeSerialTransport();
-    final app = HmiHostApp(
-      controller: HmiController(transportA, transportB: transportB),
-    );
+    final controller = HmiController(transportA, transportB: transportB);
+    final app = HmiHostApp(controller: controller);
     await tester.pumpWidget(app);
 
     await tester.tap(find.text('USART1会话').last);
@@ -114,6 +113,7 @@ void main() {
     expect(find.text('系统状态'), findsAtLeastNWidgets(1));
     expect(find.text('日志监控'), findsAtLeastNWidgets(1));
 
+    controller.dispose();
     await transportA.dispose();
     await transportB.dispose();
   });
