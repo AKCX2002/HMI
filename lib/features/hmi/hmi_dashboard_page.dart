@@ -42,7 +42,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   String _paramsStatus = '';
 
   final TextEditingController _retryCount = TextEditingController(text: '1');
-  final TextEditingController _timeoutMs = TextEditingController(text: '5000');
+  final TextEditingController _timeoutMs = TextEditingController(text: '8000');
   final TextEditingController _retryIntervalMs = TextEditingController(
     text: '200',
   );

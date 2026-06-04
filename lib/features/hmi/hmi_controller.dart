@@ -210,6 +210,7 @@ class _PortChannel {
 class HmiController extends ChangeNotifier {
   static const int _groupCatalogPageSize = 8;
   static const int _paramCatalogPageSize = 8;
+  static const int _catalogCommandTimeoutMs = 12000;
 
   /// HMI 控制器：
   /// - 管理双串口通道（端口 A / 端口 B）
@@ -1202,9 +1203,12 @@ class HmiController extends ChangeNotifier {
     required HmiSessionCommand command,
     List<int> payload = const <int>[],
     required String label,
+    int? timeoutMs,
   }) async {
     final channel = _channelB;
     final transport = channel.transport;
+    final effectiveTimeoutMs =
+        timeoutMs != null && timeoutMs > 0 ? timeoutMs : _retryPolicy.timeoutMs;
     if (!transport.isConnected) {
       _statusMessage = '$label失败: USART1未连接';
       notifyListeners();
@@ -1251,7 +1255,7 @@ class HmiController extends ChangeNotifier {
         );
         _appendSessionTx(frame, channel.config.label);
         final response = await waiter.completer.future.timeout(
-          Duration(milliseconds: _retryPolicy.timeoutMs),
+          Duration(milliseconds: effectiveTimeoutMs),
           onTimeout: () => null,
         );
         channel.sessionWaiters.remove(waiter);
@@ -1282,7 +1286,7 @@ class HmiController extends ChangeNotifier {
             _sessionState != HmiSessionClientState.disconnected) {
           _sessionState = HmiSessionClientState.degraded;
         }
-        _statusMessage = '$label超时（${_retryPolicy.timeoutMs}ms）';
+        _statusMessage = '$label超时（${effectiveTimeoutMs}ms）';
         notifyListeners();
         return null;
       } catch (_) {
@@ -1604,6 +1608,7 @@ class HmiController extends ChangeNotifier {
         command: HmiSessionCommand.getGroupList,
         payload: <int>[offset & 0xFF, _groupCatalogPageSize],
         label: '读取参数分组',
+        timeoutMs: _catalogCommandTimeoutMs,
       );
       if (resp == null) {
         return groups;
@@ -1633,6 +1638,7 @@ class HmiController extends ChangeNotifier {
         command: HmiSessionCommand.getParamList,
         payload: <int>[offset & 0xFF, _paramCatalogPageSize],
         label: '读取参数目录',
+        timeoutMs: _catalogCommandTimeoutMs,
       );
       if (resp == null) {
         return params;

@@ -33,7 +33,7 @@ enum HmiPackerFunction {
 class HmiRetryPolicy {
   const HmiRetryPolicy({
     this.maxRetries = 1,
-    this.timeoutMs = 5000,
+    this.timeoutMs = 8000,
     this.retryIntervalMs = 200,
   });
 
