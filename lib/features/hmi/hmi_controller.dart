@@ -208,6 +208,9 @@ class _PortChannel {
 }
 
 class HmiController extends ChangeNotifier {
+  static const int _groupCatalogPageSize = 8;
+  static const int _paramCatalogPageSize = 8;
+
   /// HMI 控制器：
   /// - 管理双串口通道（端口 A / 端口 B）
   /// - 每个通道独立连接、独立 CRC 算法配置
@@ -1536,8 +1539,13 @@ class HmiController extends ChangeNotifier {
         return;
       }
       _sessionState = HmiSessionClientState.valuesReady;
+      final paramTotal = _sessionParams.length;
+      final valueSuffix = valueCount < paramTotal
+          ? '（部分，${paramTotal - valueCount}条未读）'
+          : '';
       _statusMessage =
-          '参数目录已同步: 分组 ${_sessionGroups.length} / 参数 ${_sessionParams.length} / 已读值 $valueCount';
+          '参数目录已同步: 分组 ${_sessionGroups.length} / '
+          '参数 $paramTotal / 已读值 $valueCount$valueSuffix';
       notifyListeners();
 
       final subscribed = await sendSessionSubscribe(
@@ -1594,7 +1602,7 @@ class HmiController extends ChangeNotifier {
     while (true) {
       final resp = await _runSessionCommand(
         command: HmiSessionCommand.getGroupList,
-        payload: <int>[offset & 0xFF, 0x08],
+        payload: <int>[offset & 0xFF, _groupCatalogPageSize],
         label: '读取参数分组',
       );
       if (resp == null) {
@@ -1623,7 +1631,7 @@ class HmiController extends ChangeNotifier {
     while (true) {
       final resp = await _runSessionCommand(
         command: HmiSessionCommand.getParamList,
-        payload: <int>[offset & 0xFF, 0x04],
+        payload: <int>[offset & 0xFF, _paramCatalogPageSize],
         label: '读取参数目录',
       );
       if (resp == null) {
@@ -1669,21 +1677,83 @@ class HmiController extends ChangeNotifier {
     return resp.payload[1];
   }
 
+  static const int _paramChunkSize = 8;
+  static const int _paramChunkMaxRetries = 3;
+  static const int _paramChunkRetryDelayMs = 800;
+  static const int _paramChunkInterDelayMs = 150;
+
+  /// 批量读取所有已知参数的当前值。
+  ///
+  /// 分 [_paramChunkSize] 条一组逐组读取。若固件因状态门禁拒绝某一组
+  /// （设备不在 IDLE / 正在运行 / 启动序列中），会等待后重试，而非静默跳过。
   Future<int> readAllSessionParams() async {
     final ordered = _sessionParams.map((e) => e.paramId).toList()..sort();
-    final chunk = <int>[];
+    final chunks = <List<int>>[];
+    for (var i = 0; i < ordered.length; i += _paramChunkSize) {
+      chunks.add(
+        ordered.sublist(i, (i + _paramChunkSize).clamp(0, ordered.length)),
+      );
+    }
+
     _sessionParamValues.clear();
     var totalRead = 0;
+    var failedChunks = 0;
 
-    for (final paramId in ordered) {
-      chunk.add(paramId);
-      if (chunk.length >= 8) {
-        totalRead += await _readParamChunk(chunk);
-        chunk.clear();
+    for (var ci = 0; ci < chunks.length; ci++) {
+      if (!_transportB.isConnected) {
+        break;
+      }
+
+      final chunk = chunks[ci];
+      var readCount = 0;
+      var lastError = '';
+
+      for (var attempt = 1; attempt <= _paramChunkMaxRetries; attempt++) {
+        readCount = await _readParamChunk(chunk);
+        if (readCount > 0) {
+          lastError = '';
+          break;
+        }
+        // _readParamChunk 返回 0：可能是超时或设备拒绝。
+        // 若还有重试机会，等待后重试。
+        if (attempt < _paramChunkMaxRetries) {
+          lastError = _statusMessage ?? '';
+          _statusMessage =
+              '参数组 ${ci + 1}/${chunks.length} 读取失败，'
+              '等待重试 ($attempt/$_paramChunkMaxRetries)…';
+          notifyListeners();
+          await Future<void>.delayed(
+            const Duration(milliseconds: _paramChunkRetryDelayMs),
+          );
+        }
+      }
+
+      totalRead += readCount;
+      if (readCount == 0) {
+        failedChunks++;
+        debugPrint(
+          'readAllSessionParams: chunk $ci failed after '
+          '$_paramChunkMaxRetries retries: $lastError',
+        );
+      }
+
+      // 组间短暂让步，避免连续快速请求压垮处于状态切换中的设备。
+      if (ci < chunks.length - 1 && _transportB.isConnected) {
+        _statusMessage =
+            '同步参数值: $totalRead/${ordered.length}'
+            ' (组 ${ci + 1}/${chunks.length})';
+        notifyListeners();
+        await Future<void>.delayed(
+          const Duration(milliseconds: _paramChunkInterDelayMs),
+        );
       }
     }
-    if (chunk.isNotEmpty) {
-      totalRead += await _readParamChunk(chunk);
+
+    if (failedChunks > 0) {
+      debugPrint(
+        'readAllSessionParams: done with $failedChunks failed chunk(s), '
+        '$totalRead/${ordered.length} values read',
+      );
     }
     return totalRead;
   }
@@ -1699,8 +1769,11 @@ class HmiController extends ChangeNotifier {
     }
     if ((resp.flags & HmiSessionFlags.error) != 0) {
       final code = resp.payload.first;
-      _statusMessage =
-          '批量读取参数被拒绝: code=$code ids=${paramIds.map(toHex2).join(",")}';
+      // 固件返回错误（通常为 rejected_state），留给上层重试。
+      debugPrint(
+        '_readParamChunk rejected: code=$code '
+        'ids=${paramIds.map(toHex2).join(",")}',
+      );
       return 0;
     }
     final count = resp.payload[0];
