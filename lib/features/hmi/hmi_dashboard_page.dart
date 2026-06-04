@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -1962,6 +1963,13 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
                         _paramsLoading,
                         () => _readAllParams(controller),
                       ),
+                      _opBtn(
+                        '导出配置',
+                        false,
+                        controller.sessionParams.isEmpty
+                            ? null
+                            : () => _exportSessionConfig(controller),
+                      ),
                       _opBtn('保存EEPROM', false, () => _saveParams(controller)),
                       _opBtn(
                         '加载EEPROM',
@@ -2913,6 +2921,94 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
           _paramsStatus = '读取失败: $e';
         });
       }
+    }
+  }
+
+  Future<void> _exportSessionConfig(HmiController controller) async {
+    if (controller.sessionParams.isEmpty) {
+      setState(() {
+        _paramsStatus = '导出失败: 当前没有可导出的 USART1 参数目录，请先同步';
+      });
+      return;
+    }
+
+    final groups = controller.sessionGroups
+        .map(
+          (group) => <String, Object?>{
+            'group_id': group.groupId,
+            'order': group.order,
+            'flags': group.flags,
+            'group_key': group.groupKey,
+            'group_name': group.groupName,
+          },
+        )
+        .toList();
+
+    final params = controller.sessionParams
+        .map(
+          (param) => <String, Object?>{
+            'param_id': param.paramId,
+            'group_id': param.groupId,
+            'type': param.type.name,
+            'flags': param.flags,
+            'scale': param.scale,
+            'min_value': param.minValue,
+            'max_value': param.maxValue,
+            'default_value': param.defaultValue,
+            'step_value': param.stepValue,
+            'param_key': param.paramKey,
+            'param_name': param.paramName,
+            'unit': param.unit,
+            'current_value': controller.sessionParamValues[param.paramId],
+          },
+        )
+        .toList();
+
+    final payload = <String, Object?>{
+      'exported_at': DateTime.now().toIso8601String(),
+      'device_name': controller.deviceName,
+      'session_state': controller.sessionState.name,
+      'status_message': controller.statusMessage,
+      'group_count': controller.sessionGroups.length,
+      'param_count': controller.sessionParams.length,
+      'read_value_count': controller.sessionParamValues.length,
+      'groups': groups,
+      'params': params,
+    };
+
+    try {
+      final path = await exportLogBundle(
+        bundleBaseName: 'hmi_session_config',
+        textFiles: <LogBundleTextFile>[
+          LogBundleTextFile(
+            name: 'session_config.json',
+            content: const JsonEncoder.withIndent('  ').convert(payload),
+          ),
+        ],
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _paramsStatus = '配置已导出: $path';
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('配置已导出: $path')));
+    } on LogExportCancelledException {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _paramsStatus = '已取消导出配置';
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _paramsStatus = '导出配置失败: $error';
+      });
     }
   }
 

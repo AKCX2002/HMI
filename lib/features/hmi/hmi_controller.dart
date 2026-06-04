@@ -1485,16 +1485,16 @@ class HmiController extends ChangeNotifier {
         command: HmiSessionCommand.deviceInfo,
         label: '设备信息',
       );
-      if (info == null || info.payload.length < 4 || info.payload[0] != 0) {
-        _sessionState = HmiSessionClientState.degraded;
-        return;
-      }
       if (!_isSessionEpochCurrent(epoch)) {
         return;
       }
 
-      if (info.payload.length > 5) {
-        _deviceName = utf8.decode(info.payload.sublist(5));
+      if (info != null && info.payload.length >= 4 && info.payload[0] == 0) {
+        if (info.payload.length > 5) {
+          _deviceName = utf8.decode(info.payload.sublist(5));
+        }
+      } else {
+        _statusMessage = '设备信息读取失败，继续尝试同步参数目录';
       }
 
       final groups = await _fetchGroupCatalog();
@@ -1502,13 +1502,29 @@ class HmiController extends ChangeNotifier {
       if (!_isSessionEpochCurrent(epoch)) {
         return;
       }
-      if (groups.isEmpty || params.isEmpty) {
+
+      final effectiveGroups = groups.isNotEmpty
+          ? groups
+          : _buildFallbackGroupsFromParams(
+              params,
+              preferredGroups: _sessionGroups,
+            );
+
+      if (params.isEmpty) {
         _sessionState = HmiSessionClientState.degraded;
+        _statusMessage = '参数目录读取失败或为空';
         return;
       }
+
+      if (groups.isEmpty && effectiveGroups.isEmpty) {
+        _sessionState = HmiSessionClientState.degraded;
+        _statusMessage = '参数分组读取失败，且无法生成占位分组';
+        return;
+      }
+
       _sessionGroups
         ..clear()
-        ..addAll(groups);
+        ..addAll(effectiveGroups);
       _sessionParams
         ..clear()
         ..addAll(params);
@@ -1538,6 +1554,37 @@ class HmiController extends ChangeNotifier {
       _sessionSyncInProgress = false;
       notifyListeners();
     }
+  }
+
+  List<HmiSessionGroupDef> _buildFallbackGroupsFromParams(
+    List<HmiSessionParamDef> params, {
+    List<HmiSessionGroupDef> preferredGroups = const <HmiSessionGroupDef>[],
+  }) {
+    if (preferredGroups.isNotEmpty) {
+      return List<HmiSessionGroupDef>.from(preferredGroups);
+    }
+    if (params.isEmpty) {
+      return const <HmiSessionGroupDef>[];
+    }
+
+    final seen = <int>{};
+    final groups = <HmiSessionGroupDef>[];
+    final orderedIds = params.map((e) => e.groupId).toList()..sort();
+    for (final groupId in orderedIds) {
+      if (!seen.add(groupId)) {
+        continue;
+      }
+      groups.add(
+        HmiSessionGroupDef(
+          groupId: groupId,
+          order: groups.length + 1,
+          flags: 0,
+          groupKey: 'group_$groupId',
+          groupName: '参数分组 $groupId',
+        ),
+      );
+    }
+    return groups;
   }
 
   Future<List<HmiSessionGroupDef>> _fetchGroupCatalog() async {
