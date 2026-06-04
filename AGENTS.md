@@ -22,6 +22,7 @@
   - `USART1 / RS232 / 9600 8N1`: 仅承载 20B `FUNC=0x7F` HMIS-BAM
   - 默认节点地址 `0xFA`，广播地址 `0xFF`；HMI 中节点地址可编辑
   - HMIS Session `0x55 0xAA` 只作为 BAM 重组后的内部逻辑帧，不直接上串口
+  - HMIS-BAM 当前为 V3 `uint32_t TID` 口径：`TID[4] + FRAG_INDEX + FRAG_COUNT + FRAG_LEN + PAYLOAD[9]`，窗口固定为 `1`
 
 ## 双串口架构
 
@@ -130,6 +131,7 @@
 - Android USB-Serial / CDC 设备打开后需优先拉起 `DTR/RTS`；部分适配器若不拉线，会出现“能收日志/推送，但主动命令无响应，Session 握手失败”的假连通状态
 - USART1 Session `hello` 现场联调时，设备可能先经 BAM 推送 `EVENT/LOG/STACK` 再返回目录/信息帧；HMI 若已在 `hello` 发出后收到合法 Session 帧，应视为链路已存活，避免把“有流量但非 hello-response”的场景误判成握手超时
 - HMIS-BAM 外层地址不可写死为 `0xFA`；HMI 节点地址输入同时用于 USART3 主协议地址和 USART1 BAM 外层地址
+- HMIS-BAM 外层不再使用 `session id`；ACK/NACK、响应分片和日志追踪必须绑定 V3 `TID`
 - XYZ 设备测试 `target_id` 按低字节在前传输: `data[1]=low`，`data[2]=high`
 - 不要在 UI 层拼接原始帧，避免维护失控
 - Android 构建可能受本机 Java 版本影响，需按 Flutter 提示处理

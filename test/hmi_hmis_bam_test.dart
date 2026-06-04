@@ -28,7 +28,7 @@ void main() {
         frames.every((frame) => frame.function == hmisBamFunction),
         isTrue,
       );
-      expect(frames.first.data[2], frames.length);
+      expect(HmisBamFrameBuilder.fragmentCountOf(frames.first), frames.length);
     },
   );
 
@@ -87,8 +87,11 @@ void main() {
     expect(completedResult.completed, isNotNull);
     expect(ack, isNotNull);
     expect(ack?.function, hmisBamFunction);
-    expect(ack?.data[1], hmisBamFragIndexAck);
-    expect(HmiFrame.tryDecode(ack!.encode()), isNotNull);
+    expect(HmisBamFrameBuilder.fragmentIndexOf(ack!), hmisBamFragIndexAck);
+    expect(ack.data[6], 3);
+    expect(ack.data[7], HmisBamFrameBuilder.fragmentIndexOf(frames.last));
+    expect(ack.data[8], HmisBamControlStatus.ok.value);
+    expect(HmiFrame.tryDecode(ack.encode()), isNotNull);
   });
 
   test('timeout resets active transaction', () {
@@ -119,7 +122,10 @@ void main() {
     final later = now.add(const Duration(milliseconds: 150));
     final timeoutResult = decoder.checkTimeout(now: later);
     expect(timeoutResult, isNotNull);
-    expect(timeoutResult?.controlToSend?.data[1], hmisBamFragIndexNack);
+    expect(
+      HmisBamFrameBuilder.fragmentIndexOf(timeoutResult!.controlToSend!),
+      hmisBamFragIndexNack,
+    );
     expect(decoder.isActive, isFalse);
   });
 
@@ -144,17 +150,24 @@ void main() {
     // 模拟定时器触发 checkTimeout()。
     final timeoutResult = decoder.checkTimeout();
     expect(timeoutResult, isNotNull);
-    expect(timeoutResult?.controlToSend?.data[1], hmisBamFragIndexNack);
+    expect(
+      HmisBamFrameBuilder.fragmentIndexOf(timeoutResult!.controlToSend!),
+      hmisBamFragIndexNack,
+    );
     expect(decoder.isActive, isFalse);
   });
 
-  test('ACK with matching session_id resets active transaction', () {
+  test('parses ACK control frame with fragment progress fields', () {
     final session = HmiSessionFrame(
       type: HmiSessionFrameType.response,
       sequence: 3,
       command: HmiSessionCommand.deviceInfo,
       payload: Uint8List.fromList(<int>[
-        0x00, 0x02, 0x00, 0x1D, 0x00,
+        0x00,
+        0x02,
+        0x00,
+        0x1D,
+        0x00,
         ...List<int>.filled(24, 0x42),
       ]),
     ).encode();
@@ -167,19 +180,24 @@ void main() {
     decoder.acceptFrame(frames[0]);
     expect(decoder.isActive, isTrue);
 
-    final sessionId = frames[0].data[0];
+    final transactionId = HmisBamFrameBuilder.readTransactionId(frames[0].data);
     final ack = HmisBamFrameBuilder().buildControl(
       address: 0xFA,
-      sessionId: sessionId,
+      transactionId: transactionId,
       controlIndex: hmisBamFragIndexAck,
+      fragmentIndex: 0,
       status: HmisBamControlStatus.ok,
+      nextExpectedIndex: 1,
     );
     final result = decoder.acceptFrame(ack);
     expect(result.consumed, isTrue);
-    expect(decoder.isActive, isFalse);
+    expect(result.receivedControl, isNotNull);
+    expect(result.receivedControl?.fragmentIndex, 0);
+    expect(result.receivedControl?.nextExpectedIndex, 1);
+    expect(decoder.isActive, isTrue);
   });
 
-  test('ACK with mismatched session_id does not reset active transaction', () {
+  test('ACK with mismatched TID is still surfaced to upper layer', () {
     final session = HmiSessionFrame(
       type: HmiSessionFrameType.response,
       sequence: 4,
@@ -195,16 +213,18 @@ void main() {
     decoder.acceptFrame(frames[0]);
     expect(decoder.isActive, isTrue);
 
-    // 发送一个 session_id 不匹配的 ACK。
+    // 发送一个 TID 不匹配的 ACK。
     final ack = HmisBamFrameBuilder().buildControl(
       address: 0xFA,
-      sessionId: 0x77,
+      transactionId: 0x77,
       controlIndex: hmisBamFragIndexAck,
+      fragmentIndex: 0,
       status: HmisBamControlStatus.ok,
+      nextExpectedIndex: 1,
     );
     final result = decoder.acceptFrame(ack);
     expect(result.consumed, isTrue);
-    // 事务不受影响，继续等待后续分片。
+    expect(result.receivedControl?.transactionId, 0x77);
     expect(decoder.isActive, isTrue);
   });
 }

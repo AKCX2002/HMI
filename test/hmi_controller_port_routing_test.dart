@@ -89,14 +89,20 @@ class _SessionBamPeer {
   final HmisBamDecoder decoder = HmisBamDecoder();
   final HmisBamFrameBuilder builder = HmisBamFrameBuilder();
   int lastAddress = 0xFA;
+  int lastTransactionId = 0;
+
+  List<HmisBamDecodeResult> pushBam(Uint8List bytes) {
+    return decoder.pushBytes(bytes);
+  }
 
   HmiSessionFrame? acceptWrite(Uint8List bytes) {
-    for (final result in decoder.pushBytes(bytes)) {
+    for (final result in pushBam(bytes)) {
       final completed = result.completed;
       if (completed == null) {
         continue;
       }
       lastAddress = completed.address;
+      lastTransactionId = completed.transactionId;
       return HmiSessionFrame.tryDecode(completed.payload);
     }
     return null;
@@ -164,6 +170,7 @@ List<HmiFrame> _buildSessionBamFrames(
 }) {
   return peer.builder.encodePayload(
     address: peer.lastAddress,
+    transactionId: peer.lastTransactionId == 0 ? null : peer.lastTransactionId,
     payload: HmiSessionFrame(
       type: type,
       sequence: sequence,
@@ -171,6 +178,27 @@ List<HmiFrame> _buildSessionBamFrames(
       payload: Uint8List.fromList(payload),
     ).encode(),
   );
+}
+
+HmiSessionFrame? _acceptPeerWriteWithAck(
+  _SessionBamPeer peer,
+  _FakeSerialTransport transport,
+  Uint8List bytes,
+) {
+  HmiSessionFrame? frame;
+  for (final result in peer.pushBam(bytes)) {
+    final control = result.controlToSend;
+    if (control != null) {
+      transport.emit(control.encode());
+    }
+    if (result.completed != null) {
+      frame = HmiSessionFrame.tryDecode(result.completed!.payload);
+      if (frame != null) {
+        peer.lastAddress = result.completed!.address;
+      }
+    }
+  }
+  return frame;
 }
 
 void main() {
@@ -270,7 +298,19 @@ void main() {
     final peer = _SessionBamPeer();
 
     transportB.onWrite = (bytes) async {
-      final frame = peer.acceptWrite(bytes);
+      HmiSessionFrame? frame;
+      for (final result in peer.pushBam(bytes)) {
+        final control = result.controlToSend;
+        if (control != null) {
+          transportB.emit(control.encode());
+        }
+        if (result.completed != null) {
+          frame = HmiSessionFrame.tryDecode(result.completed!.payload);
+          if (frame != null) {
+            peer.lastAddress = result.completed!.address;
+          }
+        }
+      }
       if (frame == null) {
         return;
       }
@@ -320,12 +360,21 @@ void main() {
     await controller.connectPortB();
     await Future<void>.delayed(Duration.zero);
 
-    final request = peer.acceptWrite(transportB.writes.first);
+    HmiSessionFrame? request;
+    for (final write in transportB.writes) {
+      request = peer.acceptWrite(write) ?? request;
+      if (request != null) {
+        break;
+      }
+    }
     expect(request, isNotNull);
 
     expect(controller.logs, isNotEmpty);
     expect(controller.logs.first.pretty, contains('SESSION=55 AA'));
-    expect(controller.logs.first.pretty, isNot(contains('ADDR=0x55 FUNC=0x01')));
+    expect(
+      controller.logs.first.pretty,
+      isNot(contains('ADDR=0x55 FUNC=0x01')),
+    );
 
     controller.dispose();
     await transportA.dispose();
@@ -386,7 +435,7 @@ void main() {
 
     final peer = _SessionBamPeer();
     transportB.onWrite = (bytes) async {
-      final frame = peer.acceptWrite(bytes);
+      final frame = _acceptPeerWriteWithAck(peer, transportB, bytes);
       if (frame == null) {
         return;
       }
@@ -443,7 +492,7 @@ void main() {
 
     final peer = _SessionBamPeer();
     transportB.onWrite = (bytes) async {
-      final frame = peer.acceptWrite(bytes);
+      final frame = _acceptPeerWriteWithAck(peer, transportB, bytes);
       if (frame == null) {
         return;
       }
@@ -496,7 +545,7 @@ void main() {
 
     final peer = _SessionBamPeer();
     transportB.onWrite = (bytes) async {
-      final frame = peer.acceptWrite(bytes);
+      final frame = _acceptPeerWriteWithAck(peer, transportB, bytes);
       if (frame == null) {
         return;
       }
@@ -565,7 +614,7 @@ void main() {
     var deviceInfoWrites = 0;
     final peer = _SessionBamPeer();
     transportB.onWrite = (bytes) async {
-      final frame = peer.acceptWrite(bytes);
+      final frame = _acceptPeerWriteWithAck(peer, transportB, bytes);
       if (frame == null) {
         return;
       }
@@ -634,7 +683,7 @@ void main() {
 
     final peer = _SessionBamPeer();
     transportB.onWrite = (bytes) async {
-      final frame = peer.acceptWrite(bytes);
+      final frame = _acceptPeerWriteWithAck(peer, transportB, bytes);
       if (frame == null) {
         return;
       }
@@ -762,8 +811,16 @@ void main() {
         command: HmiSessionCommand.stackSnapshotPush,
         payload: <int>[
           0x02,
-          0x01, 0x80, 0x01, 0x40, 0x01,
-          0x06, 0x40, 0x02, 0xB4, 0x00,
+          0x01,
+          0x80,
+          0x01,
+          0x40,
+          0x01,
+          0x06,
+          0x40,
+          0x02,
+          0xB4,
+          0x00,
         ],
       ),
     );
@@ -773,7 +830,10 @@ void main() {
     expect(controller.latestStackSnapshot!.tasks, hasLength(2));
     expect(controller.logs, isNotEmpty);
     expect(controller.logs.first.decoded.summary, contains('STACK_SNAPSHOT'));
-    expect(controller.logs.first.decoded.summary, contains('riskiest=MonitorTask'));
+    expect(
+      controller.logs.first.decoded.summary,
+      contains('riskiest=MonitorTask'),
+    );
 
     controller.dispose();
     await transportA.dispose();
@@ -816,7 +876,7 @@ void main() {
     final transportB = _FakeSerialTransport();
     final controller = HmiController(transportA, transportB: transportB);
     final peer = _SessionBamPeer();
-    int? pendingAckSessionId;
+    int? pendingAckTransactionId;
     final deviceName = 'PACKER V1.0'.codeUnits;
     final groupKey = 'diag'.codeUnits;
     final groupName = 'diag_grp'.codeUnits;
@@ -828,20 +888,34 @@ void main() {
       final rawFrame = HmiFrame.tryDecode(bytes);
       if (rawFrame != null &&
           rawFrame.function == hmisBamFunction &&
-          rawFrame.data[1] == hmisBamFragIndexAck) {
-        if (pendingAckSessionId == rawFrame.data[0]) {
-          pendingAckSessionId = null;
+          HmisBamFrameBuilder.fragmentIndexOf(rawFrame) ==
+              hmisBamFragIndexAck) {
+        if (pendingAckTransactionId ==
+            HmisBamFrameBuilder.readTransactionId(rawFrame.data)) {
+          pendingAckTransactionId = null;
         }
         return;
       }
 
-      final frame = peer.acceptWrite(bytes);
+      HmiSessionFrame? frame;
+      for (final result in peer.pushBam(bytes)) {
+        final control = result.controlToSend;
+        if (control != null) {
+          transportB.emit(control.encode());
+        }
+        if (result.completed != null) {
+          frame = HmiSessionFrame.tryDecode(result.completed!.payload);
+          if (frame != null) {
+            peer.lastAddress = result.completed!.address;
+          }
+        }
+      }
       if (frame == null) {
         return;
       }
 
       // 模拟固件 BAM 单缓冲：上一笔 TX 的 ACK 未到前，不接受下一笔请求。
-      if (pendingAckSessionId != null) {
+      if (pendingAckTransactionId != null) {
         return;
       }
 
@@ -861,14 +935,7 @@ void main() {
             type: HmiSessionFrameType.response,
             sequence: frame.sequence,
             command: HmiSessionCommand.deviceInfo,
-            payload: <int>[
-              0x00,
-              0x02,
-              0x00,
-              0xFF,
-              0x3F,
-              ...deviceName,
-            ],
+            payload: <int>[0x00, 0x02, 0x00, 0xFF, 0x3F, ...deviceName],
           );
         case HmiSessionCommand.getGroupList:
           responseFrames = _buildSessionBamFrames(
@@ -944,15 +1011,7 @@ void main() {
             type: HmiSessionFrameType.response,
             sequence: frame.sequence,
             command: HmiSessionCommand.getParamValuesBatch,
-            payload: <int>[
-              0x01,
-              0x01,
-              0x00,
-              0x34,
-              0x12,
-              0x00,
-              0x00,
-            ],
+            payload: <int>[0x01, 0x01, 0x00, 0x34, 0x12, 0x00, 0x00],
           );
         case HmiSessionCommand.subscribeStreams:
           responseFrames = _buildSessionBamFrames(
@@ -965,13 +1024,21 @@ void main() {
         default:
           return;
       }
-      pendingAckSessionId = responseFrames.first.data[0];
+      pendingAckTransactionId = HmisBamFrameBuilder.readTransactionId(
+        responseFrames.first.data,
+      );
       transportB.emit(responseFrames.expand((item) => item.encode()).toList());
     };
 
     controller.setPortB('FAKE');
     await controller.connectPortB();
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    for (var i = 0; i < 40; i++) {
+      if (controller.sessionHandshakeReady &&
+          controller.sessionState == HmiSessionClientState.subscribed) {
+        break;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
 
     expect(controller.sessionHandshakeReady, isTrue);
     expect(controller.sessionState, HmiSessionClientState.subscribed);

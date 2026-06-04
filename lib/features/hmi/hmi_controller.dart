@@ -133,6 +133,13 @@ class _SessionWaiter {
   final Completer<HmiSessionFrame?> completer = Completer<HmiSessionFrame?>();
 }
 
+class _BamControlWaiter {
+  _BamControlWaiter(this.matcher);
+  final bool Function(HmisBamReceivedControl control) matcher;
+  final Completer<HmisBamReceivedControl?> completer =
+      Completer<HmisBamReceivedControl?>();
+}
+
 /// 单个串口通道的状态与处理逻辑。
 class _PortChannel {
   _PortChannel(
@@ -151,6 +158,7 @@ class _PortChannel {
   final HmiSessionFrameDecoder sessionDecoder = HmiSessionFrameDecoder();
   final List<_DgusWaiter> dgusWaiters = <_DgusWaiter>[];
   final List<_SessionWaiter> sessionWaiters = <_SessionWaiter>[];
+  final List<_BamControlWaiter> bamControlWaiters = <_BamControlWaiter>[];
   StreamSubscription<Uint8List>? subscription;
   final bool acceptsPackerFrames;
   final bool acceptsDgusFrames;
@@ -187,9 +195,15 @@ class _PortChannel {
         w.completer.complete(null);
       }
     }
+    for (final w in bamControlWaiters) {
+      if (!w.completer.isCompleted) {
+        w.completer.complete(null);
+      }
+    }
     resetBuffers();
     dgusWaiters.clear();
     sessionWaiters.clear();
+    bamControlWaiters.clear();
   }
 }
 
@@ -607,21 +621,24 @@ class HmiController extends ChangeNotifier {
     }
   }
 
-  Future<void> _writeSerial(SerialTransport transport, Uint8List bytes) async {
-    try {
-      await _txChain;
-    } catch (_) {}
-
+  Future<void> _writeSerial(SerialTransport transport, Uint8List bytes) {
+    final previous = _txChain;
     final done = Completer<void>();
     _txChain = done.future;
 
-    try {
-      await transport.write(bytes);
-      done.complete();
-    } catch (error) {
-      done.complete();
-      rethrow;
-    }
+    return () async {
+      try {
+        await previous;
+      } catch (_) {}
+
+      try {
+        await transport.write(bytes);
+        done.complete();
+      } catch (error) {
+        done.complete();
+        rethrow;
+      }
+    }();
   }
 
   // ────────────── 命令执行 ──────────────
@@ -1196,9 +1213,9 @@ class HmiController extends ChangeNotifier {
         ? 1
         : _retryPolicy.maxRetries;
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
-      final seq = _sessionSeq;
-      _sessionSeq = (_sessionSeq + 1) & 0xFFFF;
-      if (_sessionSeq == 0) _sessionSeq = 1;
+      final transactionId = channel.hmisBamBuilder.allocateTransactionId();
+      final seq = transactionId & 0xFFFF;
+      _sessionSeq = seq;
       final inboundFrameCountBeforeTx = _sessionInboundFrameCount;
 
       final frame = HmiSessionFrame(
@@ -1220,14 +1237,17 @@ class HmiController extends ChangeNotifier {
         final encoded = frame.encode();
         final bamFrames = channel.hmisBamBuilder.encodePayload(
           address: _sessionNodeAddress,
+          transactionId: transactionId,
           payload: encoded,
         );
         if (bamFrames.isEmpty) {
           throw StateError('HMIS-BAM帧生成失败');
         }
-        for (final bamFrame in bamFrames) {
-          await _writeSerial(transport, bamFrame.encode());
-        }
+        await _writeBamFrames(
+          channel,
+          address: _sessionNodeAddress,
+          bamFrames: bamFrames,
+        );
         _appendSessionTx(frame, channel.config.label);
         final response = await waiter.completer.future.timeout(
           Duration(milliseconds: _retryPolicy.timeoutMs),
@@ -1687,6 +1707,18 @@ class HmiController extends ChangeNotifier {
     var changed = false;
     final results = channel.hmisBamDecoder.pushBytes(bytes);
     for (final result in results) {
+      final receivedControl = result.receivedControl;
+      if (receivedControl != null) {
+        for (final waiter in List<_BamControlWaiter>.from(
+          channel.bamControlWaiters,
+        )) {
+          if (!waiter.completer.isCompleted &&
+              waiter.matcher(receivedControl)) {
+            waiter.completer.complete(receivedControl);
+            channel.bamControlWaiters.remove(waiter);
+          }
+        }
+      }
       final control = result.controlToSend;
       if (control != null) {
         unawaited(_writeSerial(channel.transport, control.encode()));
@@ -1702,6 +1734,44 @@ class HmiController extends ChangeNotifier {
       }
     }
     return changed;
+  }
+
+  Future<void> _writeBamFrames(
+    _PortChannel channel, {
+    required int address,
+    required List<HmiFrame> bamFrames,
+  }) async {
+    final transport = channel.transport;
+    for (final bamFrame in bamFrames) {
+      final transactionId = HmisBamFrameBuilder.readTransactionId(
+        bamFrame.data,
+      );
+      final fragmentIndex = HmisBamFrameBuilder.fragmentIndexOf(bamFrame);
+      final waiter = _BamControlWaiter(
+        (control) =>
+            control.address == (address & 0xFF) &&
+            control.transactionId == transactionId &&
+            control.fragmentIndex == fragmentIndex &&
+            (control.isAck || control.isNack),
+      );
+      channel.bamControlWaiters.add(waiter);
+      await _writeSerial(transport, bamFrame.encode());
+      final control = await waiter.completer.future.timeout(
+        const Duration(milliseconds: 1500),
+        onTimeout: () => null,
+      );
+      channel.bamControlWaiters.remove(waiter);
+      if (control == null) {
+        throw StateError('HMIS-BAM ACK超时');
+      }
+      if (control.isNack) {
+        throw StateError('HMIS-BAM NACK ${control.status.name}');
+      }
+      if (control.status != HmisBamControlStatus.accepted &&
+          control.status != HmisBamControlStatus.ok) {
+        throw StateError('HMIS-BAM ACK状态异常 ${control.status.name}');
+      }
+    }
   }
 
   bool _consumeDgusFrames(Uint8List bytes, _PortChannel channel) {
@@ -1902,7 +1972,9 @@ class HmiController extends ChangeNotifier {
         }
       case HmiSessionCommand.deviceInfo:
         if (payload.length >= 5) {
-          final name = payload.length > 5 ? utf8.decode(payload.sublist(5)) : '';
+          final name = payload.length > 5
+              ? utf8.decode(payload.sublist(5))
+              : '';
           final caps = payload[3] | (payload[4] << 8);
           return HmiDecodedFrame(
             title: title,

@@ -4,32 +4,55 @@ import '../../core/protocol/crc_algorithm.dart';
 import '../../core/protocol/hmi_frame.dart';
 
 const int hmisBamFunction = 0x7F;
-const int hmisBamFragmentPayloadSize = 12;
-const int hmisBamMaxPayloadSize = 512;
-const int hmisBamMaxFragmentCount = 43;
+const int hmisBamTidSize = 4;
+const int hmisBamFragmentPayloadSize = 9;
+const int hmisBamMaxPayloadSize = 1024;
+const int hmisBamMaxFragmentCount = 114;
 const int hmisBamFragIndexAck = 0xFE;
 const int hmisBamFragIndexNack = 0xFF;
 
+const int _tidOffset = 0;
+const int _fragIndexOffset = 4;
+const int _fragCountOffset = 5;
+const int _fragLengthOffset = 6;
+const int _payloadOffset = 7;
+const int _controlPayloadLength = 3;
+
 enum HmisBamControlStatus {
   ok(0x00),
-  busy(0x01),
-  oversize(0x02),
-  format(0x03),
-  timeout(0x04);
+  accepted(0x03),
+  crcError(0x06),
+  timeout(0x07),
+  busy(0x08),
+  queueFull(0x09),
+  routeFail(0x0A),
+  badFragment(0x0B),
+  internalError(0x0C),
+  tidConflict(0x0D),
+  outOfOrder(0x0E);
 
   const HmisBamControlStatus(this.value);
   final int value;
+
+  static HmisBamControlStatus? tryParse(int value) {
+    for (final item in values) {
+      if (item.value == value) {
+        return item;
+      }
+    }
+    return null;
+  }
 }
 
 class HmisBamCompletedFrame {
   const HmisBamCompletedFrame({
     required this.address,
-    required this.sessionId,
+    required this.transactionId,
     required this.payload,
   });
 
   final int address;
-  final int sessionId;
+  final int transactionId;
   final Uint8List payload;
 }
 
@@ -37,32 +60,64 @@ class HmisBamDecodeResult {
   const HmisBamDecodeResult({
     this.completed,
     this.controlToSend,
+    this.receivedControl,
     this.consumed = false,
   });
 
   final HmisBamCompletedFrame? completed;
   final HmiFrame? controlToSend;
+  final HmisBamReceivedControl? receivedControl;
   final bool consumed;
+}
+
+class HmisBamReceivedControl {
+  const HmisBamReceivedControl({
+    required this.address,
+    required this.transactionId,
+    required this.controlIndex,
+    required this.fragmentIndex,
+    required this.status,
+    required this.nextExpectedIndex,
+  });
+
+  final int address;
+  final int transactionId;
+  final int controlIndex;
+  final int fragmentIndex;
+  final HmisBamControlStatus status;
+  final int nextExpectedIndex;
+
+  bool get isAck => controlIndex == hmisBamFragIndexAck;
+  bool get isNack => controlIndex == hmisBamFragIndexNack;
 }
 
 class HmisBamFrameBuilder {
   HmisBamFrameBuilder({this.crcAlgorithm = CrcAlgorithm.modbus});
 
   final CrcAlgorithm crcAlgorithm;
-  int _nextSessionId = 1;
+  int _nextTransactionId = 1;
+
+  int allocateTransactionId() {
+    final tid = _nextTransactionId;
+    _nextTransactionId = (_nextTransactionId + 1) & 0xFFFFFFFF;
+    if (_nextTransactionId == 0) {
+      _nextTransactionId = 1;
+    }
+    return tid;
+  }
 
   List<HmiFrame> encodePayload({
     required int address,
     required List<int> payload,
+    int? transactionId,
   }) {
     if (payload.isEmpty || payload.length > hmisBamMaxPayloadSize) {
       return const <HmiFrame>[];
     }
 
-    final sessionId = _nextSessionId;
-    _nextSessionId = (_nextSessionId + 1) & 0xFF;
-    if (_nextSessionId == 0) {
-      _nextSessionId = 1;
+    final tid = transactionId ?? allocateTransactionId();
+    if (tid == 0) {
+      return const <HmiFrame>[];
     }
 
     final fragmentCount =
@@ -80,11 +135,16 @@ class HmisBamFrameBuilder {
           ? hmisBamFragmentPayloadSize
           : remaining;
       final data = List<int>.filled(16, 0);
-      data[0] = sessionId;
-      data[1] = index;
-      data[2] = fragmentCount;
-      data[3] = fragmentLength;
-      data.setRange(4, 4 + fragmentLength, payload, offset);
+      writeTransactionId(data, tid);
+      data[_fragIndexOffset] = index;
+      data[_fragCountOffset] = fragmentCount;
+      data[_fragLengthOffset] = fragmentLength;
+      data.setRange(
+        _payloadOffset,
+        _payloadOffset + fragmentLength,
+        payload,
+        offset,
+      );
       frames.add(
         HmiFrame(
           address: address & 0xFF,
@@ -99,23 +159,48 @@ class HmisBamFrameBuilder {
 
   HmiFrame buildControl({
     required int address,
-    required int sessionId,
+    required int transactionId,
     required int controlIndex,
+    required int fragmentIndex,
     required HmisBamControlStatus status,
-    int detail = 0xFF,
+    int nextExpectedIndex = 0xFF,
   }) {
+    final data = List<int>.filled(16, 0);
+    writeTransactionId(data, transactionId);
+    data[_fragIndexOffset] = controlIndex & 0xFF;
+    data[_fragCountOffset] = 0;
+    data[_fragLengthOffset] = _controlPayloadLength;
+    data[_payloadOffset] = fragmentIndex & 0xFF;
+    data[_payloadOffset + 1] = status.value;
+    data[_payloadOffset + 2] = nextExpectedIndex & 0xFF;
     return HmiFrame(
       address: address & 0xFF,
       function: hmisBamFunction,
-      data: <int>[
-        sessionId & 0xFF,
-        controlIndex & 0xFF,
-        0,
-        status.value,
-        detail & 0xFF,
-      ],
+      data: data,
       crcAlgorithm: crcAlgorithm,
     );
+  }
+
+  static int readTransactionId(List<int> data) {
+    return (data[_tidOffset] & 0xFF) |
+        ((data[_tidOffset + 1] & 0xFF) << 8) |
+        ((data[_tidOffset + 2] & 0xFF) << 16) |
+        ((data[_tidOffset + 3] & 0xFF) << 24);
+  }
+
+  static void writeTransactionId(List<int> data, int transactionId) {
+    data[_tidOffset] = transactionId & 0xFF;
+    data[_tidOffset + 1] = (transactionId >> 8) & 0xFF;
+    data[_tidOffset + 2] = (transactionId >> 16) & 0xFF;
+    data[_tidOffset + 3] = (transactionId >> 24) & 0xFF;
+  }
+
+  static int fragmentIndexOf(HmiFrame frame) {
+    return frame.data[_fragIndexOffset];
+  }
+
+  static int fragmentCountOf(HmiFrame frame) {
+    return frame.data[_fragCountOffset];
   }
 }
 
@@ -135,7 +220,7 @@ class HmisBamDecoder {
   final List<int> _payload = List<int>.filled(hmisBamMaxPayloadSize, 0);
   final Set<int> _receivedFragments = <int>{};
   bool _active = false;
-  int _sessionId = 0;
+  int _transactionId = 0;
   int _fragmentCount = 0;
   int _totalLength = 0;
   int _address = 0;
@@ -150,11 +235,6 @@ class HmisBamDecoder {
   }
 
   /// 检查当前活动事务是否超时。
-  ///
-  /// 应在每次收到数据时调用，或由上一层周期性调用。
-  /// 若超时则自动重置事务并返回带有超时信息的解码结果。
-  ///
-  /// [now] 可选，默认为当前时刻。
   HmisBamDecodeResult? checkTimeout({DateTime? now}) {
     if (!_active) {
       return null;
@@ -163,19 +243,20 @@ class HmisBamDecoder {
     if (effectiveNow.difference(_activeStartTime) < rxTimeout) {
       return null;
     }
-    final timedOutSessionId = _sessionId;
+    final timedOutTransactionId = _transactionId;
     final timedOutAddress = _address;
     _resetTransaction();
     return HmisBamDecodeResult(
       consumed: true,
       controlToSend: HmisBamFrameBuilder(crcAlgorithm: crcAlgorithm)
           .buildControl(
-        address: timedOutAddress,
-        sessionId: timedOutSessionId,
-        controlIndex: hmisBamFragIndexNack,
-        status: HmisBamControlStatus.timeout,
-        detail: 0xFF,
-      ),
+            address: timedOutAddress,
+            transactionId: timedOutTransactionId,
+            controlIndex: hmisBamFragIndexNack,
+            fragmentIndex: 0xFF,
+            status: HmisBamControlStatus.timeout,
+            nextExpectedIndex: 0xFF,
+          ),
     );
   }
 
@@ -207,30 +288,31 @@ class HmisBamDecoder {
       return const HmisBamDecodeResult();
     }
 
-    final sessionId = frame.data[0];
-    final fragmentIndex = frame.data[1];
-    final fragmentCount = frame.data[2];
-    final fragmentLength = frame.data[3];
+    final transactionId = HmisBamFrameBuilder.readTransactionId(frame.data);
+    final fragmentIndex = frame.data[_fragIndexOffset];
+    final fragmentCount = frame.data[_fragCountOffset];
+    final fragmentLength = frame.data[_fragLengthOffset];
 
     if (fragmentIndex == hmisBamFragIndexAck ||
         fragmentIndex == hmisBamFragIndexNack) {
-      // ACK/NACK 控制帧：若 session_id 与当前活动事务匹配，则清理事务。
-      // 否则仅标记 consumed（可能是设备对旧事务的延迟响应）。
-      if (_active && sessionId == _sessionId) {
-        _resetTransaction();
+      final control = _parseControl(frame, transactionId, fragmentIndex);
+      if (control == null) {
+        return const HmisBamDecodeResult(consumed: true);
       }
-      return const HmisBamDecodeResult(consumed: true);
+      return HmisBamDecodeResult(consumed: true, receivedControl: control);
     }
 
-    if (!_isFragmentHeaderValid(fragmentIndex, fragmentCount, fragmentLength)) {
+    if (transactionId == 0 ||
+        !_isFragmentHeaderValid(fragmentIndex, fragmentCount, fragmentLength)) {
       return HmisBamDecodeResult(
         consumed: true,
         controlToSend: _control(
           frame,
-          sessionId,
+          transactionId,
           hmisBamFragIndexNack,
-          HmisBamControlStatus.format,
           fragmentIndex,
+          HmisBamControlStatus.badFragment,
+          0,
         ),
       );
     }
@@ -244,26 +326,25 @@ class HmisBamDecoder {
         consumed: true,
         controlToSend: _control(
           frame,
-          sessionId,
+          transactionId,
           hmisBamFragIndexNack,
-          HmisBamControlStatus.oversize,
           fragmentIndex,
+          HmisBamControlStatus.queueFull,
+          0,
         ),
       );
     }
 
-    if (_active &&
-        (_sessionId != sessionId ||
-            _fragmentCount != fragmentCount ||
-            _address != frame.address)) {
+    if (!_active && fragmentIndex != 0) {
       return HmisBamDecodeResult(
         consumed: true,
         controlToSend: _control(
           frame,
-          sessionId,
+          transactionId,
           hmisBamFragIndexNack,
-          HmisBamControlStatus.busy,
           fragmentIndex,
+          HmisBamControlStatus.outOfOrder,
+          0,
         ),
       );
     }
@@ -271,16 +352,70 @@ class HmisBamDecoder {
     if (!_active) {
       _active = true;
       _activeStartTime = DateTime.now();
-      _sessionId = sessionId;
+      _transactionId = transactionId;
       _fragmentCount = fragmentCount;
       _address = frame.address;
       _totalLength = 0;
+      _nextExpectedIndex = 0;
       _receivedFragments.clear();
+    } else if (_transactionId != transactionId || _address != frame.address) {
+      return HmisBamDecodeResult(
+        consumed: true,
+        controlToSend: _control(
+          frame,
+          transactionId,
+          hmisBamFragIndexNack,
+          fragmentIndex,
+          HmisBamControlStatus.busy,
+          _nextExpectedIndex,
+        ),
+      );
+    } else if (_fragmentCount != fragmentCount) {
+      return HmisBamDecodeResult(
+        consumed: true,
+        controlToSend: _control(
+          frame,
+          transactionId,
+          hmisBamFragIndexNack,
+          fragmentIndex,
+          HmisBamControlStatus.tidConflict,
+          _nextExpectedIndex,
+        ),
+      );
+    }
+
+    if (fragmentIndex < _nextExpectedIndex) {
+      return HmisBamDecodeResult(
+        consumed: true,
+        controlToSend: _control(
+          frame,
+          transactionId,
+          hmisBamFragIndexAck,
+          fragmentIndex,
+          HmisBamControlStatus.accepted,
+          _nextExpectedIndex,
+        ),
+      );
+    }
+
+    if (fragmentIndex != _nextExpectedIndex) {
+      return HmisBamDecodeResult(
+        consumed: true,
+        controlToSend: _control(
+          frame,
+          transactionId,
+          hmisBamFragIndexNack,
+          fragmentIndex,
+          HmisBamControlStatus.outOfOrder,
+          _nextExpectedIndex,
+        ),
+      );
     }
 
     if (!_receivedFragments.contains(fragmentIndex)) {
-      _payload.setRange(offset, end, frame.data, 4);
+      _payload.setRange(offset, end, frame.data, _payloadOffset);
       _receivedFragments.add(fragmentIndex);
+      _nextExpectedIndex = fragmentIndex + 1;
       if (fragmentIndex == fragmentCount - 1) {
         _totalLength = end;
       }
@@ -289,7 +424,7 @@ class HmisBamDecoder {
     if (_receivedFragments.length == _fragmentCount && _totalLength > 0) {
       final completed = HmisBamCompletedFrame(
         address: frame.address,
-        sessionId: sessionId,
+        transactionId: transactionId,
         payload: Uint8List.fromList(_payload.sublist(0, _totalLength)),
       );
       _resetTransaction();
@@ -298,15 +433,26 @@ class HmisBamDecoder {
         completed: completed,
         controlToSend: _control(
           frame,
-          sessionId,
+          transactionId,
           hmisBamFragIndexAck,
+          fragmentIndex,
           HmisBamControlStatus.ok,
-          0xFF,
+          _nextExpectedIndex,
         ),
       );
     }
 
-    return const HmisBamDecodeResult(consumed: true);
+    return HmisBamDecodeResult(
+      consumed: true,
+      controlToSend: _control(
+        frame,
+        transactionId,
+        hmisBamFragIndexAck,
+        fragmentIndex,
+        HmisBamControlStatus.accepted,
+        _nextExpectedIndex,
+      ),
+    );
   }
 
   bool _isFragmentHeaderValid(
@@ -329,26 +475,55 @@ class HmisBamDecoder {
 
   HmiFrame _control(
     HmiFrame frame,
-    int sessionId,
+    int transactionId,
     int controlIndex,
+    int fragmentIndex,
     HmisBamControlStatus status,
-    int detail,
+    int nextExpectedIndex,
   ) {
     return HmisBamFrameBuilder(crcAlgorithm: crcAlgorithm).buildControl(
       address: frame.address,
-      sessionId: sessionId,
+      transactionId: transactionId,
       controlIndex: controlIndex,
+      fragmentIndex: fragmentIndex,
       status: status,
-      detail: detail,
+      nextExpectedIndex: nextExpectedIndex,
+    );
+  }
+
+  HmisBamReceivedControl? _parseControl(
+    HmiFrame frame,
+    int transactionId,
+    int controlIndex,
+  ) {
+    if (frame.data[_fragLengthOffset] < _controlPayloadLength) {
+      return null;
+    }
+    final status = HmisBamControlStatus.tryParse(
+      frame.data[_payloadOffset + 1],
+    );
+    if (status == null) {
+      return null;
+    }
+    return HmisBamReceivedControl(
+      address: frame.address,
+      transactionId: transactionId,
+      controlIndex: controlIndex,
+      fragmentIndex: frame.data[_payloadOffset],
+      status: status,
+      nextExpectedIndex: frame.data[_payloadOffset + 2],
     );
   }
 
   void _resetTransaction() {
     _active = false;
-    _sessionId = 0;
+    _transactionId = 0;
     _fragmentCount = 0;
     _totalLength = 0;
     _address = 0;
+    _nextExpectedIndex = 0;
     _receivedFragments.clear();
   }
+
+  int _nextExpectedIndex = 0;
 }
