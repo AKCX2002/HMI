@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_libserialport/flutter_libserialport.dart';
@@ -14,6 +15,12 @@ class DesktopSerialTransport implements SerialTransport {
   SerialPort? _port;
   SerialPortReader? _reader;
   StreamSubscription<Uint8List>? _readerSubscription;
+
+  void _handleIncomingBytes(Uint8List bytes) {
+    /* libserialport 桌面端可能复用底层读缓冲；转一份稳定副本再上抛，
+       避免 HMI 协议层在长帧/连续分页场景读到后续覆盖的数据。 */
+    _incomingController.add(Uint8List.fromList(bytes));
+  }
 
   String _errnoHint(int code) {
     switch (code) {
@@ -85,7 +92,7 @@ class DesktopSerialTransport implements SerialTransport {
 
       _reader = SerialPortReader(port);
       _readerSubscription = _reader!.stream.listen(
-        _incomingController.add,
+        _handleIncomingBytes,
         onError: (Object error) {
           debugPrint('桌面串口读取错误: $error');
           unawaited(disconnect());
@@ -171,5 +178,10 @@ class DesktopSerialTransport implements SerialTransport {
     } catch (e) {
       debugPrint('关闭桌面串口状态流异常: $e');
     }
+  }
+
+  @visibleForTesting
+  void debugHandleIncomingBytes(Uint8List bytes) {
+    _handleIncomingBytes(bytes);
   }
 }

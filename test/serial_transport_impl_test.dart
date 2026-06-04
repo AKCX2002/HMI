@@ -42,6 +42,23 @@ void main() {
 
       expect(transport.debugDelegate, isA<DesktopSerialTransport>());
     });
+
+    test('桌面串口上抛数据前会复制输入缓冲，避免原生读缓冲复用污染', () async {
+      final transport = DesktopSerialTransport();
+      final received = <Uint8List>[];
+      final sub = transport.incomingBytes.listen(received.add);
+
+      final source = Uint8List.fromList(<int>[0x11, 0x22, 0x33, 0x44]);
+      transport.debugHandleIncomingBytes(source);
+      source[0] = 0xAA;
+      source[1] = 0xBB;
+      await Future<void>.delayed(Duration.zero);
+
+      expect(received, hasLength(1));
+      expect(received.single, <int>[0x11, 0x22, 0x33, 0x44]);
+
+      await sub.cancel();
+    });
   });
 
   group('android usb transport method channel', () {
@@ -93,7 +110,10 @@ void main() {
         'DAPLink CDC ACM',
       );
       expect((calls[1].arguments as Map<Object?, Object?>)['baudRate'], 9600);
-      expect((calls[2].arguments as Map<Object?, Object?>)['bytes'], isA<Uint8List>());
+      expect(
+        (calls[2].arguments as Map<Object?, Object?>)['bytes'],
+        isA<Uint8List>(),
+      );
     });
 
     test('native error 事件会立刻清除连接状态', () async {
@@ -113,13 +133,10 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       expect(transport.isConnected, isFalse);
-      expect(
-        states,
-        <SerialConnectionState>[
-          SerialConnectionState.connected,
-          SerialConnectionState.disconnected,
-        ],
-      );
+      expect(states, <SerialConnectionState>[
+        SerialConnectionState.connected,
+        SerialConnectionState.disconnected,
+      ]);
 
       await subscription.cancel();
     });
