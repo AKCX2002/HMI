@@ -211,6 +211,9 @@ class HmiController extends ChangeNotifier {
   static const int _groupCatalogPageSize = 8;
   static const int _paramCatalogPageSize = 8;
   static const int _catalogCommandTimeoutMs = 12000;
+  static const int _catalogPageMaxRetries = 3;
+  static const int _catalogPageRetryDelayMs = 1000;
+  static const int _catalogPageInterDelayMs = 200;
 
   /// HMI 控制器：
   /// - 管理双串口通道（端口 A / 端口 B）
@@ -306,6 +309,7 @@ class HmiController extends ChangeNotifier {
   bool _sessionHandshakeReady = false;
   bool _sessionSyncInProgress = false;
   int _sessionSubscriptionMask = 0;
+  int _sessionCatalogExpectedParamTotal = 0;
   final List<HmiSessionGroupDef> _sessionGroups = <HmiSessionGroupDef>[];
   final List<HmiSessionParamDef> _sessionParams = <HmiSessionParamDef>[];
   final Map<int, int> _sessionParamValues = <int, int>{};
@@ -1207,8 +1211,9 @@ class HmiController extends ChangeNotifier {
   }) async {
     final channel = _channelB;
     final transport = channel.transport;
-    final effectiveTimeoutMs =
-        timeoutMs != null && timeoutMs > 0 ? timeoutMs : _retryPolicy.timeoutMs;
+    final effectiveTimeoutMs = timeoutMs != null && timeoutMs > 0
+        ? timeoutMs
+        : _retryPolicy.timeoutMs;
     if (!transport.isConnected) {
       _statusMessage = '$label失败: USART1未连接';
       notifyListeners();
@@ -1411,6 +1416,7 @@ class HmiController extends ChangeNotifier {
     _sessionHandshakeReady = false;
     _sessionSyncInProgress = false;
     _sessionSubscriptionMask = 0;
+    _sessionCatalogExpectedParamTotal = 0;
     _sessionGroups.clear();
     _sessionParams.clear();
     _sessionParamValues.clear();
@@ -1510,6 +1516,10 @@ class HmiController extends ChangeNotifier {
         return;
       }
 
+      final expectedParamTotal = _sessionCatalogExpectedParamTotal;
+      final paramCatalogComplete =
+          expectedParamTotal <= 0 || params.length >= expectedParamTotal;
+
       final effectiveGroups = groups.isNotEmpty
           ? groups
           : _buildFallbackGroupsFromParams(
@@ -1520,6 +1530,13 @@ class HmiController extends ChangeNotifier {
       if (params.isEmpty) {
         _sessionState = HmiSessionClientState.degraded;
         _statusMessage = '参数目录读取失败或为空';
+        return;
+      }
+
+      if (!paramCatalogComplete) {
+        _sessionState = HmiSessionClientState.degraded;
+        _statusMessage =
+            '参数目录未完整读取: 已拿到 ${params.length}/$expectedParamTotal 条';
         return;
       }
 
@@ -1604,12 +1621,28 @@ class HmiController extends ChangeNotifier {
     var offset = 0;
 
     while (true) {
-      final resp = await _runSessionCommand(
-        command: HmiSessionCommand.getGroupList,
-        payload: <int>[offset & 0xFF, _groupCatalogPageSize],
-        label: '读取参数分组',
-        timeoutMs: _catalogCommandTimeoutMs,
-      );
+      HmiSessionFrame? resp;
+
+      for (var attempt = 1; attempt <= _catalogPageMaxRetries; attempt++) {
+        resp = await _runSessionCommand(
+          command: HmiSessionCommand.getGroupList,
+          payload: <int>[offset & 0xFF, _groupCatalogPageSize],
+          label: '读取参数分组(页$offset)',
+          timeoutMs: _catalogCommandTimeoutMs,
+        );
+        if (resp != null) {
+          break;
+        }
+        if (attempt < _catalogPageMaxRetries) {
+          _statusMessage =
+              '参数分组页 $offset 超时，重试 ($attempt/$_catalogPageMaxRetries)…';
+          notifyListeners();
+          await Future<void>.delayed(
+            Duration(milliseconds: _catalogPageRetryDelayMs),
+          );
+        }
+      }
+
       if (resp == null) {
         return groups;
       }
@@ -1625,22 +1658,58 @@ class HmiController extends ChangeNotifier {
         break;
       }
       offset = page.nextOffset;
+      await Future<void>.delayed(
+        Duration(milliseconds: _catalogPageInterDelayMs),
+      );
     }
     return groups;
   }
 
   Future<List<HmiSessionParamDef>> _fetchParamCatalog() async {
     final params = <HmiSessionParamDef>[];
+    final visitedOffsets = <int>{};
     var offset = 0;
+    var expectedTotal = 0;
+
+    _sessionCatalogExpectedParamTotal = 0;
 
     while (true) {
-      final resp = await _runSessionCommand(
-        command: HmiSessionCommand.getParamList,
-        payload: <int>[offset & 0xFF, _paramCatalogPageSize],
-        label: '读取参数目录',
-        timeoutMs: _catalogCommandTimeoutMs,
-      );
+      if (!visitedOffsets.add(offset)) {
+        debugPrint('_fetchParamCatalog: duplicated page offset=$offset');
+        break;
+      }
+
+      HmiSessionFrame? resp;
+      var lastLabel = '';
+
+      for (var attempt = 1; attempt <= _catalogPageMaxRetries; attempt++) {
+        resp = await _runSessionCommand(
+          command: HmiSessionCommand.getParamList,
+          payload: <int>[offset & 0xFF, _paramCatalogPageSize],
+          label: '读取参数目录(页$offset)',
+          timeoutMs: _catalogCommandTimeoutMs,
+        );
+        if (resp != null) {
+          lastLabel = '';
+          break;
+        }
+        lastLabel = _statusMessage ?? '';
+        if (attempt < _catalogPageMaxRetries) {
+          _statusMessage =
+              '参数目录页 $offset 超时，重试 ($attempt/$_catalogPageMaxRetries)…';
+          notifyListeners();
+          await Future<void>.delayed(
+            Duration(milliseconds: _catalogPageRetryDelayMs),
+          );
+        }
+      }
+
       if (resp == null) {
+        debugPrint(
+          '_fetchParamCatalog: page offset=$offset failed after '
+          '$_catalogPageMaxRetries retries: $lastLabel',
+        );
+        _sessionCatalogExpectedParamTotal = expectedTotal;
         return params;
       }
       HmiSessionParamCatalogPage page;
@@ -1650,11 +1719,28 @@ class HmiController extends ChangeNotifier {
         _statusMessage = '读取参数目录失败: $error';
         return params;
       }
+      if (expectedTotal == 0) {
+        expectedTotal = page.totalCount;
+      } else if (page.totalCount > expectedTotal) {
+        expectedTotal = page.totalCount;
+      }
+      _sessionCatalogExpectedParamTotal = expectedTotal;
       params.addAll(page.params);
+      _statusMessage =
+          '参数目录: ${params.length}/${expectedTotal == 0 ? "?" : expectedTotal} 条已加载…';
+      notifyListeners();
+      debugPrint(
+        '_fetchParamCatalog: page offset=$offset loaded=${page.params.length} '
+        'total=${page.totalCount} next=${page.nextOffset} accumulated=${params.length}',
+      );
       if (page.nextOffset == 0 || page.nextOffset == offset) {
         break;
       }
       offset = page.nextOffset;
+      // 页间延迟，让设备 BAM 层完成上一轮 TX/RX 状态重置
+      await Future<void>.delayed(
+        Duration(milliseconds: _catalogPageInterDelayMs),
+      );
     }
     return params;
   }
