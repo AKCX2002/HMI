@@ -295,7 +295,6 @@ class HmiController extends ChangeNotifier {
 
   List<String> _portsA = <String>[];
   List<String> _portsB = <String>[];
-  int _sessionSeq = 1;
   int _sessionEpoch = 0;
   int _sessionInboundFrameCount = 0;
   String _deviceName = '打包机';
@@ -1215,7 +1214,6 @@ class HmiController extends ChangeNotifier {
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       final transactionId = channel.hmisBamBuilder.allocateTransactionId();
       final seq = transactionId & 0xFFFF;
-      _sessionSeq = seq;
       final inboundFrameCountBeforeTx = _sessionInboundFrameCount;
 
       final frame = HmiSessionFrame(
