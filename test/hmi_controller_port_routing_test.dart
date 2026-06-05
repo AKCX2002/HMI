@@ -282,9 +282,13 @@ void main() {
     transportB.emit(_sessionLogFrame('SESSION_OK'));
     await Future<void>.delayed(Duration.zero);
 
-    expect(controller.logs, hasLength(1));
-    expect(controller.logs.first.direction, 'LOG');
-    expect(controller.logs.first.decoded.summary, 'SESSION_OK');
+    expect(
+      controller.logs.any(
+        (entry) =>
+            entry.direction == 'LOG' && entry.decoded.summary == 'SESSION_OK',
+      ),
+      isTrue,
+    );
 
     controller.dispose();
     await transportA.dispose();
@@ -417,10 +421,11 @@ void main() {
     );
     await Future<void>.delayed(Duration.zero);
 
-    expect(controller.logs, hasLength(1));
-    expect(controller.logs.first.decoded.summary, contains('DEVICE_INFO'));
-    expect(controller.logs.first.decoded.summary, contains('caps=0x3FFF'));
-    expect(controller.logs.first.decoded.summary, contains('name=PACKER V1.0'));
+    final deviceInfoLog = controller.logs.firstWhere(
+      (entry) => entry.decoded.summary.contains('DEVICE_INFO'),
+    );
+    expect(deviceInfoLog.decoded.summary, contains('caps=0x3FFF'));
+    expect(deviceInfoLog.decoded.summary, contains('name=PACKER V1.0'));
 
     controller.dispose();
     await transportA.dispose();
@@ -760,7 +765,10 @@ void main() {
     transportB.emit(frame.sublist(splitAt));
     await Future<void>.delayed(Duration.zero);
 
-    expect(controller.logs, isEmpty);
+    expect(
+      controller.logs.any((entry) => entry.decoded.summary == 'SESSION_OK'),
+      isFalse,
+    );
 
     controller.dispose();
     await transportA.dispose();

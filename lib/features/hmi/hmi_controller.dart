@@ -209,11 +209,13 @@ class _PortChannel {
 
 class HmiController extends ChangeNotifier {
   static const int _groupCatalogPageSize = 8;
-  static const int _paramCatalogPageSize = 8;
+  static const int _paramCatalogPageSize = 4;
   static const int _catalogCommandTimeoutMs = 12000;
   static const int _catalogPageMaxRetries = 3;
   static const int _catalogPageRetryDelayMs = 1000;
   static const int _catalogPageInterDelayMs = 200;
+  static const int _catalogLargePageInterDelayMs = 1200;
+  static const int _catalogLargePayloadThresholdBytes = 384;
 
   /// HMI 控制器：
   /// - 管理双串口通道（端口 A / 端口 B）
@@ -1665,6 +1667,15 @@ class HmiController extends ChangeNotifier {
     return groups;
   }
 
+  int _catalogInterPageDelayMsForPayload(int payloadLength) {
+    // USART1 HMIS-BAM 同端口下，大页目录响应收尾后立即继续翻页，
+    // 现场容易撞上上一轮大帧 TX/RX 互斥窗口，导致下一页长期无响应。
+    if (payloadLength >= _catalogLargePayloadThresholdBytes) {
+      return _catalogLargePageInterDelayMs;
+    }
+    return _catalogPageInterDelayMs;
+  }
+
   Future<List<HmiSessionParamDef>> _fetchParamCatalog() async {
     final params = <HmiSessionParamDef>[];
     final visitedOffsets = <int>{};
@@ -1737,10 +1748,12 @@ class HmiController extends ChangeNotifier {
         break;
       }
       offset = page.nextOffset;
-      // 页间延迟，让设备 BAM 层完成上一轮 TX/RX 状态重置
-      await Future<void>.delayed(
-        Duration(milliseconds: _catalogPageInterDelayMs),
+      // 页间延迟，让设备 BAM 层完成上一轮 TX/RX 状态重置。
+      // 对超大目录页额外放慢翻页节奏，避开同端口大帧收尾窗口。
+      final interDelayMs = _catalogInterPageDelayMsForPayload(
+        resp.payload.length,
       );
+      await Future<void>.delayed(Duration(milliseconds: interDelayMs));
     }
     return params;
   }
@@ -1917,6 +1930,10 @@ class HmiController extends ChangeNotifier {
     var changed = false;
     final results = channel.hmisBamDecoder.pushBytes(bytes);
     for (final result in results) {
+      final rawFrame = result.frame;
+      if (rawFrame != null) {
+        _appendLog('RX', rawFrame, portLabel: channel.config.label);
+      }
       final receivedControl = result.receivedControl;
       if (receivedControl != null) {
         for (final waiter in List<_BamControlWaiter>.from(
@@ -1931,6 +1948,12 @@ class HmiController extends ChangeNotifier {
       }
       final control = result.controlToSend;
       if (control != null) {
+        _appendLog(
+          'TX',
+          control,
+          note: 'auto-control',
+          portLabel: channel.config.label,
+        );
         unawaited(_writeSerial(channel.transport, control.encode()));
       }
       final completed = result.completed;
@@ -1965,6 +1988,7 @@ class HmiController extends ChangeNotifier {
             (control.isAck || control.isNack),
       );
       channel.bamControlWaiters.add(waiter);
+      _appendLog('TX', bamFrame, portLabel: channel.config.label);
       await _writeSerial(transport, bamFrame.encode());
       final control = await waiter.completer.future.timeout(
         const Duration(milliseconds: 1500),

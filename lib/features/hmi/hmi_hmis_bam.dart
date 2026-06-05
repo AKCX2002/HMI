@@ -58,12 +58,14 @@ class HmisBamCompletedFrame {
 
 class HmisBamDecodeResult {
   const HmisBamDecodeResult({
+    this.frame,
     this.completed,
     this.controlToSend,
     this.receivedControl,
     this.consumed = false,
   });
 
+  final HmiFrame? frame;
   final HmisBamCompletedFrame? completed;
   final HmiFrame? controlToSend;
   final HmisBamReceivedControl? receivedControl;
@@ -299,12 +301,17 @@ class HmisBamDecoder {
       if (control == null) {
         return const HmisBamDecodeResult(consumed: true);
       }
-      return HmisBamDecodeResult(consumed: true, receivedControl: control);
+      return HmisBamDecodeResult(
+        frame: frame,
+        consumed: true,
+        receivedControl: control,
+      );
     }
 
     if (transactionId == 0 ||
         !_isFragmentHeaderValid(fragmentIndex, fragmentCount, fragmentLength)) {
       return HmisBamDecodeResult(
+        frame: frame,
         consumed: true,
         controlToSend: _control(
           frame,
@@ -323,6 +330,7 @@ class HmisBamDecoder {
         fragmentCount * hmisBamFragmentPayloadSize >
             hmisBamMaxPayloadSize + hmisBamFragmentPayloadSize - 1) {
       return HmisBamDecodeResult(
+        frame: frame,
         consumed: true,
         controlToSend: _control(
           frame,
@@ -337,6 +345,7 @@ class HmisBamDecoder {
 
     if (!_active && fragmentIndex != 0) {
       return HmisBamDecodeResult(
+        frame: frame,
         consumed: true,
         controlToSend: _control(
           frame,
@@ -360,6 +369,7 @@ class HmisBamDecoder {
       _receivedFragments.clear();
     } else if (_transactionId != transactionId || _address != frame.address) {
       return HmisBamDecodeResult(
+        frame: frame,
         consumed: true,
         controlToSend: _control(
           frame,
@@ -372,6 +382,7 @@ class HmisBamDecoder {
       );
     } else if (_fragmentCount != fragmentCount) {
       return HmisBamDecodeResult(
+        frame: frame,
         consumed: true,
         controlToSend: _control(
           frame,
@@ -386,6 +397,7 @@ class HmisBamDecoder {
 
     if (fragmentIndex < _nextExpectedIndex) {
       return HmisBamDecodeResult(
+        frame: frame,
         consumed: true,
         controlToSend: _control(
           frame,
@@ -400,6 +412,7 @@ class HmisBamDecoder {
 
     if (fragmentIndex != _nextExpectedIndex) {
       return HmisBamDecodeResult(
+        frame: frame,
         consumed: true,
         controlToSend: _control(
           frame,
@@ -429,6 +442,7 @@ class HmisBamDecoder {
       );
       _resetTransaction();
       return HmisBamDecodeResult(
+        frame: frame,
         consumed: true,
         completed: completed,
         controlToSend: _control(
@@ -443,6 +457,7 @@ class HmisBamDecoder {
     }
 
     return HmisBamDecodeResult(
+      frame: frame,
       consumed: true,
       controlToSend: _control(
         frame,

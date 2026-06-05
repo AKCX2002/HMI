@@ -1,4 +1,5 @@
 import '../../core/protocol/hmi_frame.dart';
+import 'hmi_hmis_bam.dart';
 
 /// 当前 HMI 仅保留打包机协议(0x40~0x4C)与自定义帧。
 enum HmiCommandCode {
@@ -104,6 +105,42 @@ String toHex2(int value) =>
     value.toRadixString(16).padLeft(2, '0').toUpperCase();
 
 String payloadToHex(List<int> data) => data.map(toHex2).join(' ');
+
+String _bamControlIndexName(int value) {
+  return switch (value) {
+    hmisBamFragIndexAck => 'ACK',
+    hmisBamFragIndexNack => 'NACK',
+    _ => 'DATA',
+  };
+}
+
+HmiDecodedFrame _decodeHmisBamFrame(HmiFrame frame) {
+  final d = frame.data;
+  final raw = payloadToHex(d);
+  final tid = HmisBamFrameBuilder.readTransactionId(d);
+  final fragIndex = d[4];
+  final fragCount = d[5];
+  final fragLength = d[6];
+
+  if (fragIndex == hmisBamFragIndexAck || fragIndex == hmisBamFragIndexNack) {
+    final status =
+        HmisBamControlStatus.tryParse(d[8])?.name.toUpperCase() ??
+        'UNKNOWN(0x${toHex2(d[8])})';
+    return HmiDecodedFrame(
+      title: 'HMIS-BAM ${_bamControlIndexName(fragIndex)}',
+      summary:
+          'tid=$tid frag=${toHex2(d[7])} status=$status next=${toHex2(d[9])}',
+      rawDataHex: raw,
+    );
+  }
+
+  return HmiDecodedFrame(
+    title: 'HMIS-BAM DATA',
+    summary:
+        'tid=$tid frag=$fragIndex/$fragCount len=$fragLength payload=${payloadToHex(d.sublist(7, 7 + fragLength))}',
+    rawDataHex: raw,
+  );
+}
 
 String _yesNo(int value) => value == 0 ? '否' : '是';
 
@@ -362,5 +399,8 @@ HmiDecodedFrame decodeHmiFrameRx(HmiFrame frame) {
 
 /// 根据方向自动选择 Y（发送）或 Z（接收）解码。
 HmiDecodedFrame decodeHmiFrame(HmiFrame frame, {String direction = 'RX'}) {
+  if (frame.function == hmisBamFunction) {
+    return _decodeHmisBamFrame(frame);
+  }
   return direction == 'TX' ? decodeHmiFrameTx(frame) : decodeHmiFrameRx(frame);
 }
