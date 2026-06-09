@@ -24,7 +24,8 @@ enum HmiPackerFunction {
   resetFault(0x49, '故障复位'),
   stepperJog(0x4A, '步进点动'),
   dcMotor1Jog(0x4B, '直流1点动'),
-  dcMotor2Jog(0x4C, '直流2点动');
+  dcMotor2Jog(0x4C, '直流2点动'),
+  relayJog(0x4D, '继电器点动');
 
   const HmiPackerFunction(this.code, this.label);
   final int code;

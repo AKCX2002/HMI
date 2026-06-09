@@ -99,6 +99,10 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
   final TextEditingController _cmd4cDuration = TextEditingController(
     text: '500',
   );
+  int _cmd4dRelay = 1;
+  final TextEditingController _cmd4dDuration = TextEditingController(
+    text: '500',
+  );
 
   final TextEditingController _stackChartPoints = TextEditingController(
     text: '120',
@@ -133,6 +137,7 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
     _cmd4aPulses.dispose();
     _cmd4bDuration.dispose();
     _cmd4cDuration.dispose();
+    _cmd4dDuration.dispose();
     super.dispose();
   }
 
@@ -1523,6 +1528,55 @@ class _HmiDashboardPageState extends State<HmiDashboardPage> {
             usePortB: _packerUsePortB,
           ),
           '直流2点动',
+        ),
+      ),
+      _cmdRow(
+        controller,
+        nodeAddr,
+        '0x4D',
+        '继电器点动',
+        config: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            _buildDropdown(
+              value: _cmd4dRelay,
+              items: const <int>[1, 2, 3, 4],
+              labels: const <String>['R1', 'R2', 'R3', 'R4'],
+              onChanged: (v) => setState(() => _cmd4dRelay = v ?? 1),
+            ),
+            const SizedBox(width: 4),
+            SizedBox(
+              width: 60,
+              height: 28,
+              child: TextField(
+                controller: _cmd4dDuration,
+                keyboardType: TextInputType.number,
+                smartQuotesType: SmartQuotesType.disabled,
+                smartDashesType: SmartDashesType.disabled,
+                style: GoogleFonts.ibmPlexMono(
+                  color: const Color(0xFFD6E9FF),
+                  fontSize: 12,
+                ),
+                decoration: const InputDecoration(
+                  hintText: 'ms',
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 4,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        onSend: () => _runCommand(
+          () => controller.sendPackerRelayJog(
+            nodeAddress: nodeAddr,
+            relayId: _cmd4dRelay,
+            durationMs: _safeInt(_cmd4dDuration, fallback: 500),
+            usePortB: _packerUsePortB,
+          ),
+          '继电器点动',
         ),
       ),
     ];

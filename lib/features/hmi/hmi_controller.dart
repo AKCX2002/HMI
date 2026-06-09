@@ -911,6 +911,24 @@ class HmiController extends ChangeNotifier {
     );
   }
 
+  Future<CommandExecutionResult> sendPackerRelayJog({
+    required int nodeAddress,
+    required int relayId,
+    required int durationMs,
+    bool? usePortB,
+  }) {
+    return _runPackerCommand(
+      HmiPackerFunction.relayJog,
+      nodeAddress: nodeAddress,
+      payload: <int>[
+        relayId & 0xFF,
+        durationMs & 0xFF,
+        (durationMs >> 8) & 0xFF,
+      ],
+      usePortB: usePortB,
+    );
+  }
+
   /// 读取单个运行时参数。
   Future<int?> sendParamRead({
     required int nodeAddress,
@@ -1134,6 +1152,23 @@ class HmiController extends ChangeNotifier {
         (durationMs >> 8) & 0xFF,
       ],
       label: 'Session直流点动',
+    );
+    return resp != null && resp.payload.isNotEmpty && resp.payload[0] == 0;
+  }
+
+  /// 继电器点动。relayId: 继电器编号, durationMs: 时长。
+  Future<bool> sessionRelayJog(int relayId, int durationMs) async {
+    if (!await _ensureSessionQuickControlReady()) {
+      return false;
+    }
+    final resp = await _runSessionCommand(
+      command: HmiSessionCommand.relayJog,
+      payload: <int>[
+        relayId & 0xFF,
+        durationMs & 0xFF,
+        (durationMs >> 8) & 0xFF,
+      ],
+      label: 'Session继电器点动',
     );
     return resp != null && resp.payload.isNotEmpty && resp.payload[0] == 0;
   }

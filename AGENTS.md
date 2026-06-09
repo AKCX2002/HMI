@@ -18,7 +18,7 @@
   - CRC16-Modbus（低字节在前）
   - UART3 为上位机接口
 - 打包机独立节点协议（来自 `Packaging_machine_V1.0`）:
-  - `USART3 / RS485 / 9600 8N1`: 保持原 20B 主协议，功能码 `0x40..0x4C`
+  - `USART3 / RS485 / 9600 8N1`: 保持原 20B 主协议，功能码 `0x40..0x4D`（新增 `0x4D` 继电器点动）。可通过运行时参数 `RCFG_ID_USART3_HMIS_BAM_PASSTHROUGH` (ID `0x84`) 开启 HMIS-BAM 透传开关，开启后该物理串口仅处理 BAM 分片帧，并与原 20B 串口命令接收互斥。
   - `USART1 / RS232 / 9600 8N1`: 仅承载 20B `FUNC=0x7F` HMIS-BAM
   - 默认节点地址 `0xFA`，广播地址 `0xFF`；HMI 中节点地址可编辑
   - HMIS Session `0x55 0xAA` 只作为 BAM 重组后的内部逻辑帧，不直接上串口

@@ -43,6 +43,7 @@ enum HmiSessionCommand {
   resetFault(0x35),
   stepperJog(0x36),
   dcMotorJog(0x37),
+  relayJog(0x38),
   eventPush(0x40),
   logPush(0x41),
   stackSnapshotPush(0x42);
