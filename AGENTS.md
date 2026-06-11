@@ -18,11 +18,12 @@
   - CRC16-Modbus（低字节在前）
   - UART3 为上位机接口
 - 打包机独立节点协议（来自 `Packaging_machine_V1.0`）:
-  - `USART3 / RS485 / 9600 8N1`: 保持原 20B 主协议，功能码 `0x40..0x4D`（新增 `0x4D` 继电器点动）。可通过运行时参数 `RCFG_ID_USART3_HMIS_BAM_PASSTHROUGH` (ID `0x84`) 开启 HMIS-BAM 透传开关，开启后该物理串口仅处理 BAM 分片帧，并与原 20B 串口命令接收互斥。
-  - `USART1 / RS232 / 9600 8N1`: 仅承载 20B `FUNC=0x7F` HMIS-BAM
+  - `USART3 / RS485 / 9600 8N1`: 保持原 20B 主协议，功能码 `0x40..0x4D`；同时接受 `FUNC=0x7E` HMI Session 单帧与 `FUNC=0x7F` HMIS-BAM。
+  - `USART1 / RS232 / 9600 8N1`: 承载 20B `FUNC=0x7E` HMI Session 单帧与 `FUNC=0x7F` HMIS-BAM。
   - 默认节点地址 `0xFA`，广播地址 `0xFF`；HMI 中节点地址可编辑
-  - HMIS Session `0x55 0xAA` 只作为 BAM 重组后的内部逻辑帧，不直接上串口
-  - HMIS-BAM 当前为 V3 `uint32_t TID` 口径：`TID[4] + FRAG_INDEX + FRAG_COUNT + FRAG_LEN + PAYLOAD[9]`，窗口固定为 `1`
+  - `0x7E` 单帧数据区为 `TYPE + SEQ(LE16) + CMD + FLAGS + LEN + PAYLOAD[10]`；单参数读写等短请求/短响应优先走该路径。
+  - HMIS Session `0x55 0xAA` 只作为 BAM 重组后的内部逻辑帧，不直接上串口。
+  - HMIS-BAM 当前为 V3 `uint32_t TID` 口径：`TID[4] + FRAG_INDEX + FRAG_COUNT + FRAG_LEN + PAYLOAD[8] + RESERVED[1]`，`RESERVED` 固定 `0x00` 且参与 CRC，窗口固定为 `1`，静态上限 `512B / 64片`。
 
 ## 双串口架构
 
@@ -38,7 +39,7 @@
 │  └──────────────────────────────────────────────────┘ │
 │                                                      │
 │  ┌─ 端口 B (USART1) ──────────────────────┐ │
-│  │  HMIS-BAM / 20B FUNC=0x7F               │ │
+│  │  HMI Session / 20B FUNC=0x7E, 0x7F       │ │
 │  │  9600 8N1 / RS232                       │ │
 │  │  内部: HMI Session 参数/日志/控制         │ │
 │  │  不直接发送 55 AA Session 长帧           │ │
@@ -49,9 +50,9 @@
 └──────────────────────────────────────────────┘
 
 - 端口 A 默认 USART3 / 9600 / CRC16-Modbus
-- 端口 B 默认 USART1 / 9600 / HMIS-BAM(20B `FUNC=0x7F`)
+- 端口 B 默认 USART1 / 9600 / HMI Session(20B `FUNC=0x7E` 单帧 + `FUNC=0x7F` BAM)
 - 每个端口扫描/连接/断开独立操作
-- 打包机 20B 主协议命令固定走端口 A；参数、日志、事件和快捷控制经端口 B 的 HMIS-BAM 承载；不自动跨端口回退
+- 打包机 20B 主协议命令固定走端口 A；单参数读写/快捷短命令经端口 B 的 `0x7E` 承载，全量参数同步、目录、日志、事件和栈快照可经端口 B 的 `0x7F` BAM 承载；不自动跨端口回退
 
 ## 3. Confirmed Technical Baseline
 
@@ -126,11 +127,11 @@
 
 - 不要假设串口字节流按帧对齐到达，必须做缓冲与粘包拆包
 - 打包机节点响应地址为 `0x00`，20B 接收同步不能只识别 `0xAF/0xBF`
-- 不要在 USART1 直接跑 DGUS、裸 Session 或普通 20B 主协议；USART1 物理层只解析 HMIS-BAM `FUNC=0x7F`
+- 不要在 USART1 直接跑 DGUS、裸 `55 AA` Session 或普通 20B 主协议；USART1 物理层只解析 HMI Session 单帧 `FUNC=0x7E` 与 HMIS-BAM `FUNC=0x7F`
 - Android USB Host 已启用 `SerialInputOutputManager` 时，发送路径必须复用其 `writeAsync(...)`，不要在读线程运行期间并发直调 `port.write(...)`
 - Android USB-Serial / CDC 设备打开后需优先拉起 `DTR/RTS`；部分适配器若不拉线，会出现“能收日志/推送，但主动命令无响应，Session 握手失败”的假连通状态
-- USART1 Session `hello` 现场联调时，设备可能先经 BAM 推送 `EVENT/LOG/STACK` 再返回目录/信息帧；HMI 若已在 `hello` 发出后收到合法 Session 帧，应视为链路已存活，避免把“有流量但非 hello-response”的场景误判成握手超时
-- HMIS-BAM 外层地址不可写死为 `0xFA`；HMI 节点地址输入同时用于 USART3 主协议地址和 USART1 BAM 外层地址
+- USART1 Session `hello` 现场联调时，设备可能先经 `0x7E` 或 BAM 推送 `EVENT/LOG/STACK` 再返回目录/信息帧；HMI 若已在 `hello` 发出后收到合法 Session 帧，应视为链路已存活，避免把“有流量但非 hello-response”的场景误判成握手超时
+- HMI Session 外层地址不可写死为 `0xFA`；HMI 节点地址输入同时用于 USART3 主协议地址、USART1 `0x7E` 外层地址和 BAM 外层地址
 - HMIS-BAM 外层不再使用 `session id`；ACK/NACK、响应分片和日志追踪必须绑定 V3 `TID`
 - XYZ 设备测试 `target_id` 按低字节在前传输: `data[1]=low`，`data[2]=high`
 - 不要在 UI 层拼接原始帧，避免维护失控

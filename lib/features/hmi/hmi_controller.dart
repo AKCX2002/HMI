@@ -13,6 +13,7 @@ import 'hmi_port_config.dart';
 import 'hmi_protocol.dart';
 import 'hmi_session_catalog.dart';
 import 'hmi_session_frame.dart';
+import 'hmi_session_single_frame.dart';
 import 'stack_stats.dart';
 
 class HmiLogEntry {
@@ -153,8 +154,11 @@ class _PortChannel {
   final SerialTransport transport;
   final List<int> rxBuffer = <int>[];
   final List<int> dgusRxBuffer = <int>[];
+  final List<int> sessionRxBuffer = <int>[];
   final HmisBamDecoder hmisBamDecoder = HmisBamDecoder();
   final HmisBamFrameBuilder hmisBamBuilder = HmisBamFrameBuilder();
+  final HmiSessionSingleFrameCodec sessionSingleCodec =
+      const HmiSessionSingleFrameCodec();
   final HmiSessionFrameDecoder sessionDecoder = HmiSessionFrameDecoder();
   final List<_DgusWaiter> dgusWaiters = <_DgusWaiter>[];
   final List<_SessionWaiter> sessionWaiters = <_SessionWaiter>[];
@@ -172,6 +176,7 @@ class _PortChannel {
   void resetBuffers() {
     rxBuffer.clear();
     dgusRxBuffer.clear();
+    sessionRxBuffer.clear();
     hmisBamDecoder.reset();
     sessionDecoder.reset();
   }
@@ -384,6 +389,19 @@ class HmiController extends ChangeNotifier {
       item.sort((a, b) => a.paramId.compareTo(b.paramId));
     }
     return ordered;
+  }
+
+  @visibleForTesting
+  void debugSetSessionCatalogForTest({
+    List<HmiSessionGroupDef> groups = const <HmiSessionGroupDef>[],
+    List<HmiSessionParamDef> params = const <HmiSessionParamDef>[],
+  }) {
+    _sessionGroups
+      ..clear()
+      ..addAll(groups);
+    _sessionParams
+      ..clear()
+      ..addAll(params);
   }
 
   // ────────────── 端口 A 配置 ──────────────
@@ -1245,6 +1263,7 @@ class HmiController extends ChangeNotifier {
     List<int> payload = const <int>[],
     required String label,
     int? timeoutMs,
+    bool forceBam = false,
   }) async {
     final channel = _channelB;
     final transport = channel.transport;
@@ -1281,20 +1300,29 @@ class HmiController extends ChangeNotifier {
       channel.sessionWaiters.add(waiter);
 
       try {
-        final encoded = frame.encode();
-        final bamFrames = channel.hmisBamBuilder.encodePayload(
-          address: _sessionNodeAddress,
-          transactionId: transactionId,
-          payload: encoded,
-        );
-        if (bamFrames.isEmpty) {
-          throw StateError('HMIS-BAM帧生成失败');
+        if (!forceBam && channel.sessionSingleCodec.canEncode(frame)) {
+          final singleFrame = channel.sessionSingleCodec.encode(
+            address: _sessionNodeAddress,
+            frame: frame,
+          );
+          _appendLog('TX', singleFrame, portLabel: channel.config.label);
+          await _writeSerial(transport, singleFrame.encode());
+        } else {
+          final encoded = frame.encode();
+          final bamFrames = channel.hmisBamBuilder.encodePayload(
+            address: _sessionNodeAddress,
+            transactionId: transactionId,
+            payload: encoded,
+          );
+          if (bamFrames.isEmpty) {
+            throw StateError('HMIS-BAM帧生成失败');
+          }
+          await _writeBamFrames(
+            channel,
+            address: _sessionNodeAddress,
+            bamFrames: bamFrames,
+          );
         }
-        await _writeBamFrames(
-          channel,
-          address: _sessionNodeAddress,
-          bamFrames: bamFrames,
-        );
         _appendSessionTx(frame, channel.config.label);
         final response = await waiter.completer.future.timeout(
           Duration(milliseconds: effectiveTimeoutMs),
@@ -1824,7 +1852,8 @@ class HmiController extends ChangeNotifier {
 
   /// 批量读取所有已知参数的当前值。
   ///
-  /// 分 [_paramChunkSize] 条一组逐组读取。若固件因状态门禁拒绝某一组
+  /// 分 [_paramChunkSize] 条一组逐组读取；该全量同步路径固定走 FUNC=0x7F BAM，
+  /// 让大批量响应与普通单参数 0x7E 读写分流。若固件因状态门禁拒绝某一组
   /// （设备不在 IDLE / 正在运行 / 启动序列中），会等待后重试，而非静默跳过。
   Future<int> readAllSessionParams() async {
     final ordered = _sessionParams.map((e) => e.paramId).toList()..sort();
@@ -1903,6 +1932,7 @@ class HmiController extends ChangeNotifier {
       command: HmiSessionCommand.getParamValuesBatch,
       payload: <int>[paramIds.length & 0xFF, ...paramIds],
       label: '批量读取参数',
+      forceBam: true,
     );
     if (resp == null || resp.payload.isEmpty) {
       return 0;
@@ -1962,44 +1992,84 @@ class HmiController extends ChangeNotifier {
   }
 
   bool _consumeSessionFrames(Uint8List bytes, _PortChannel channel) {
+    final buf = channel.sessionRxBuffer;
+    buf.addAll(bytes.map((byte) => byte & 0xFF));
+    if (buf.length > 4096) {
+      buf.removeRange(0, buf.length - 4096);
+    }
+
     var changed = false;
-    final results = channel.hmisBamDecoder.pushBytes(bytes);
-    for (final result in results) {
-      final rawFrame = result.frame;
-      if (rawFrame != null) {
-        _appendLog('RX', rawFrame, portLabel: channel.config.label);
-      }
-      final receivedControl = result.receivedControl;
-      if (receivedControl != null) {
-        for (final waiter in List<_BamControlWaiter>.from(
-          channel.bamControlWaiters,
-        )) {
-          if (!waiter.completer.isCompleted &&
-              waiter.matcher(receivedControl)) {
-            waiter.completer.complete(receivedControl);
-            channel.bamControlWaiters.remove(waiter);
-          }
-        }
-      }
-      final control = result.controlToSend;
-      if (control != null) {
-        _appendLog(
-          'TX',
-          control,
-          note: 'auto-control',
-          portLabel: channel.config.label,
-        );
-        unawaited(_writeSerial(channel.transport, control.encode()));
-      }
-      final completed = result.completed;
-      if (completed == null) {
+    while (buf.length >= HmiFrame.frameLength) {
+      final packet = buf.sublist(0, HmiFrame.frameLength);
+      final rawFrame = HmiFrame.tryDecode(
+        packet,
+        crcAlgorithm: channel.config.crcAlgorithm,
+      );
+      if (rawFrame == null) {
+        buf.removeAt(0);
         continue;
       }
-      final frames = channel.sessionDecoder.pushBytes(completed.payload);
-      for (final frame in frames) {
-        changed = true;
-        _appendSessionFrame(frame, channel.config.label);
+      buf.removeRange(0, HmiFrame.frameLength);
+      if (rawFrame.function == hmiSessionSingleFrameFunction) {
+        _appendLog('RX', rawFrame, portLabel: channel.config.label);
+        final sessionFrame = channel.sessionSingleCodec.decode(rawFrame);
+        if (sessionFrame != null) {
+          changed = true;
+          _appendSessionFrame(sessionFrame, channel.config.label);
+        }
+        continue;
       }
+      if (rawFrame.function != hmisBamFunction) {
+        continue;
+      }
+      changed =
+          _handleBamDecodeResult(
+            channel,
+            channel.hmisBamDecoder.acceptFrame(rawFrame),
+          ) ||
+          changed;
+    }
+    return changed;
+  }
+
+  bool _handleBamDecodeResult(
+    _PortChannel channel,
+    HmisBamDecodeResult result,
+  ) {
+    var changed = false;
+    final rawFrame = result.frame;
+    if (rawFrame != null) {
+      _appendLog('RX', rawFrame, portLabel: channel.config.label);
+    }
+    final receivedControl = result.receivedControl;
+    if (receivedControl != null) {
+      for (final waiter in List<_BamControlWaiter>.from(
+        channel.bamControlWaiters,
+      )) {
+        if (!waiter.completer.isCompleted && waiter.matcher(receivedControl)) {
+          waiter.completer.complete(receivedControl);
+          channel.bamControlWaiters.remove(waiter);
+        }
+      }
+    }
+    final control = result.controlToSend;
+    if (control != null) {
+      _appendLog(
+        'TX',
+        control,
+        note: 'auto-control',
+        portLabel: channel.config.label,
+      );
+      unawaited(_writeSerial(channel.transport, control.encode()));
+    }
+    final completed = result.completed;
+    if (completed == null) {
+      return changed;
+    }
+    final frames = channel.sessionDecoder.pushBytes(completed.payload);
+    for (final frame in frames) {
+      changed = true;
+      _appendSessionFrame(frame, channel.config.label);
     }
     return changed;
   }

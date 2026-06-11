@@ -3,11 +3,13 @@
 
 V3 格式:
   - TID: 4 bytes LE
-  - Fragment payload: 9 bytes
-  - Max payload: 1024 bytes
+  - Fragment payload: 8 bytes
+  - Reserved: CRC 前 1 byte 固定 0x00，参与外层 CRC
+  - Max payload: 512 bytes
   - Fragment header: TID[4] + FRAG_IDX[1] + FRAG_CNT[1] + FRAG_LEN[1]
   - Control: FRAG_IDX=0xFE(ACK) / 0xFF(NACK), FRAG_CNT=0, FRAG_LEN=3
   - Control payload: [frag_ref, status, next_expected]
+  - Short Session: FUNC=0x7E, TYPE+SEQ+CMD+FLAGS+LEN+PAYLOAD(10)
 """
 
 import struct
@@ -17,8 +19,10 @@ import serial
 
 # ── V3 常量 ──
 MCU_ADDR = 0xFA
+SINGLE_FUNC = 0x7E
 BAM_FUNC = 0x7F
-FRAG_PAYLOAD = 9  # V3: 9 bytes per fragment
+SINGLE_PAYLOAD = 10
+FRAG_PAYLOAD = 8  # V3: 8 bytes per fragment + 1 reserved byte
 FRAME_SIZE = 20
 
 # BAM 控制
@@ -84,10 +88,12 @@ def parse_20b(raw: bytes):
     return raw[0], raw[1], raw[2:18]
 
 
-def build_session(stype: int, seq: int, cmd: int, payload: bytes = b'') -> bytes:
+def build_session(stype: int, seq: int, cmd: int, payload: bytes = b'',
+                  flags: int | None = None) -> bytes:
     """构建 Session 帧，CRC 仅覆盖 SOF 之后的 body 部分。"""
     ver = 0x01
-    flags = 0x01 if stype == S_REQ else 0x00
+    if flags is None:
+        flags = 0x01 if stype == S_REQ else 0x00
     body = bytes([ver, stype,
                   seq & 0xFF, (seq >> 8) & 0xFF,
                   cmd, flags,
@@ -119,6 +125,36 @@ def parse_session(data: bytes):
 
 # ═══════════════════ V3 BAM ═══════════════════
 
+def build_single_session_20b(stype: int, seq: int, cmd: int,
+                             payload: bytes = b'', flags: int | None = None) -> bytes:
+    """构建 FUNC=0x7E Session 单帧。仅承载 Session payload <= 10B 的短帧。"""
+    if len(payload) > SINGLE_PAYLOAD:
+        raise ValueError(f"single-frame payload too large: {len(payload)}")
+    if flags is None:
+        flags = 0x01 if stype == S_REQ else 0x00
+    data16 = bytes([
+        stype & 0xFF,
+        seq & 0xFF, (seq >> 8) & 0xFF,
+        cmd & 0xFF,
+        flags & 0xFF,
+        len(payload) & 0xFF,
+    ]) + payload
+    return build_20b(MCU_ADDR, SINGLE_FUNC, data16)
+
+
+def parse_single_session_20b(data16: bytes):
+    """解析 FUNC=0x7E Session 单帧 data16。"""
+    plen = data16[5]
+    if plen > SINGLE_PAYLOAD:
+        return None
+    return dict(
+        type=data16[0],
+        seq=data16[1] | (data16[2] << 8),
+        cmd=data16[3],
+        flags=data16[4],
+        payload=data16[6:6 + plen],
+    )
+
 def bam_encode(payload: bytes, tid: int = None) -> list:
     """将 payload 编码为 V3 BAM 20B 帧列表。"""
     if tid is None:
@@ -129,10 +165,11 @@ def bam_encode(payload: bytes, tid: int = None) -> list:
     for i in range(frag_count):
         offset = i * FRAG_PAYLOAD
         chunk = payload[offset:offset + FRAG_PAYLOAD]
-        # data16: TID[4] + FRAG_IDX[1] + FRAG_CNT[1] + FRAG_LEN[1] + PAYLOAD
+        # data16: TID[4] + FRAG_IDX[1] + FRAG_CNT[1] + FRAG_LEN[1] + PAYLOAD[8] + RESERVED[1]
         data16 = struct.pack('<I', tid)
         data16 += bytes([i, frag_count, len(chunk)])
         data16 += chunk
+        data16 = data16.ljust(16, b'\x00')
         frames.append(build_20b(MCU_ADDR, BAM_FUNC, data16))
     return frames
 
@@ -143,6 +180,8 @@ def bam_parse_fragment(data16: bytes):
     fidx = data16[4]
     fcnt = data16[5]
     flen = data16[6]
+    if data16[15] != 0:
+        return None
     payload = data16[7:7 + flen] if flen <= FRAG_PAYLOAD else b''
     return dict(tid=tid, fidx=fidx, fcnt=fcnt, flen=flen, payload=payload)
 
@@ -153,7 +192,87 @@ def bam_build_control(tid: int, control: int, frag_ref: int,
     data16 = struct.pack('<I', tid)
     data16 += bytes([control, 0, 3])  # FRAG_IDX=ACK/NACK, FRAG_CNT=0, FRAG_LEN=3
     data16 += bytes([frag_ref, status, next_exp])
+    data16 = data16.ljust(16, b'\x00')
     return build_20b(MCU_ADDR, BAM_FUNC, data16)
+
+
+def send_session_and_wait(ser, seq: int, cmd: int, payload: bytes = b'',
+                          rx_timeout=3.0, ack_timeout=1.5) -> bytes | None:
+    """短 Session 请求优先走 0x7E；payload >10B 时回落 0x7F BAM。"""
+    session = build_session(S_REQ, seq, cmd, payload)
+    if len(payload) > SINGLE_PAYLOAD:
+        return send_bam_stop_and_wait(
+            ser, session, rx_timeout=rx_timeout, ack_timeout=ack_timeout)
+
+    ser.reset_input_buffer()
+    ser.write(build_single_session_20b(S_REQ, seq, cmd, payload))
+    ser.flush()
+    return _recv_session_response(ser, timeout=rx_timeout)
+
+
+def _recv_session_response(ser, timeout: float) -> bytes | None:
+    """接收 0x7E 单帧响应或 0x7F BAM 响应，返回逻辑 Session 帧。"""
+    deadline = time.time() + timeout
+    buf = b''
+    rx_tid = None
+    rx_frag_count = 0
+    rx_fragments = {}
+    rx_total_len = 0
+
+    while time.time() < deadline:
+        waiting = ser.in_waiting or 0
+        if waiting > 0:
+            buf += ser.read(waiting)
+
+        while len(buf) >= FRAME_SIZE:
+            pkt = buf[:FRAME_SIZE]
+            buf = buf[FRAME_SIZE:]
+            parsed = parse_20b(pkt)
+            if parsed is None:
+                continue
+            addr, func, data16 = parsed
+            if func == SINGLE_FUNC:
+                single = parse_single_session_20b(data16)
+                if single is None:
+                    continue
+                return build_session(
+                    single['type'], single['seq'], single['cmd'],
+                    single['payload'], flags=single['flags'])
+            if func != BAM_FUNC:
+                continue
+            frag = bam_parse_fragment(data16)
+            if frag is None:
+                continue
+            tid = frag['tid']
+            fidx = frag['fidx']
+            fcnt = frag['fcnt']
+            flen = frag['flen']
+
+            if fidx in (ACK, NACK):
+                continue
+
+            if rx_tid is None or rx_tid != tid:
+                rx_tid = tid
+                rx_frag_count = fcnt
+                rx_fragments.clear()
+                rx_total_len = 0
+
+            if fidx >= fcnt:
+                continue
+            if fidx not in rx_fragments:
+                rx_fragments[fidx] = frag['payload']
+                rx_total_len = max(rx_total_len, fidx * FRAG_PAYLOAD + flen)
+
+            status = CTRL_OK if len(rx_fragments) >= fcnt else CTRL_ACCEPTED
+            ser.write(bam_build_control(tid, ACK, fidx, status, fidx + 1))
+            ser.flush()
+
+            if len(rx_fragments) >= rx_frag_count:
+                payload_bam = b''.join(rx_fragments[i] for i in range(rx_frag_count))
+                return payload_bam[:rx_total_len]
+
+        time.sleep(0.001)
+    return None
 
 
 # ═══════════════════ BAM 收发 ═══════════════════
@@ -208,6 +327,8 @@ def _wait_for_ack(ser, expected_tid: int, expected_frag: int, timeout: float) ->
             if func != BAM_FUNC:
                 continue
             frag = bam_parse_fragment(data16)
+            if frag is None:
+                continue
             fidx = frag['fidx']
 
             if fidx == ACK or fidx == NACK:
@@ -251,6 +372,8 @@ def _recv_bam_response(ser, timeout: float) -> bytes | None:
             if func != BAM_FUNC:
                 continue
             frag = bam_parse_fragment(data16)
+            if frag is None:
+                continue
             tid = frag['tid']
             fidx = frag['fidx']
             fcnt = frag['fcnt']
@@ -313,9 +436,10 @@ def _recv_bam_response(ser, timeout: float) -> bytes | None:
 def test_hello(ser):
     """测试 HELLO (短帧, 1-2 片)。"""
     print("\n── HELLO ──")
-    session = build_session(S_REQ, next_tid() & 0xFFFF, CMD_HELLO)
+    seq = next_tid() & 0xFFFF
+    session = build_session(S_REQ, seq, CMD_HELLO)
     print(f"  发送 Session: {session.hex()}")
-    resp = send_bam_stop_and_wait(ser, session, rx_timeout=3.0)
+    resp = send_session_and_wait(ser, seq, CMD_HELLO, rx_timeout=3.0)
     if resp is None:
         print("  ❌ 无响应")
         return False
@@ -332,9 +456,10 @@ def test_hello(ser):
 def test_device_info(ser):
     """测试 DEVICE_INFO (中等帧, ~31B → 4 片响应)。"""
     print("\n── DEVICE_INFO ──")
-    session = build_session(S_REQ, next_tid() & 0xFFFF, CMD_DEVICE_INFO)
+    seq = next_tid() & 0xFFFF
+    session = build_session(S_REQ, seq, CMD_DEVICE_INFO)
     print(f"  发送 Session: {session.hex()}")
-    resp = send_bam_stop_and_wait(ser, session, rx_timeout=5.0)
+    resp = send_session_and_wait(ser, seq, CMD_DEVICE_INFO, rx_timeout=5.0)
     if resp is None:
         print("  ❌ 无响应 (可能长帧接收问题)")
         return False
@@ -352,9 +477,10 @@ def test_group_list(ser):
     """测试 GET_GROUP_LIST (长帧, ~190B → 22 片响应)。"""
     print("\n── GET_GROUP_LIST ──")
     payload = bytes([0x00, 0xFF])  # start=0, max=all
-    session = build_session(S_REQ, next_tid() & 0xFFFF, CMD_GET_GROUP_LIST, payload)
+    seq = next_tid() & 0xFFFF
+    session = build_session(S_REQ, seq, CMD_GET_GROUP_LIST, payload)
     print(f"  发送 Session: {session.hex()}")
-    resp = send_bam_stop_and_wait(ser, session, rx_timeout=8.0)
+    resp = send_session_and_wait(ser, seq, CMD_GET_GROUP_LIST, payload, rx_timeout=8.0)
     if resp is None:
         print("  ❌ 无响应 (长帧问题!)")
         return False
@@ -375,8 +501,8 @@ def test_group_list(ser):
 def test_status(ser):
     """测试 GET_STATUS (短帧)。"""
     print("\n── GET_STATUS ──")
-    session = build_session(S_REQ, next_tid() & 0xFFFF, CMD_GET_STATUS)
-    resp = send_bam_stop_and_wait(ser, session, rx_timeout=3.0)
+    seq = next_tid() & 0xFFFF
+    resp = send_session_and_wait(ser, seq, CMD_GET_STATUS, rx_timeout=3.0)
     if resp is None:
         print("  ❌ 无响应")
         return False
@@ -395,8 +521,8 @@ def main():
     port = sys.argv[1] if len(sys.argv) > 1 else '/dev/ttyACM0'
     baud = 9600
 
-    print(f"=== HMIS-BAM V3 测试 === 端口={port} 波特率={baud}")
-    print(f"FRAG_PAYLOAD={FRAG_PAYLOAD}B, MCU_ADDR=0x{MCU_ADDR:02X}")
+    print(f"=== HMI Session 0x7E/0x7F 测试 === 端口={port} 波特率={baud}")
+    print(f"SINGLE_PAYLOAD={SINGLE_PAYLOAD}B, FRAG_PAYLOAD={FRAG_PAYLOAD}B, MCU_ADDR=0x{MCU_ADDR:02X}")
 
     ser = serial.Serial(port, baud, timeout=0.05)
     ser.reset_input_buffer()

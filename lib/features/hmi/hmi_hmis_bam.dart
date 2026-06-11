@@ -5,9 +5,9 @@ import '../../core/protocol/hmi_frame.dart';
 
 const int hmisBamFunction = 0x7F;
 const int hmisBamTidSize = 4;
-const int hmisBamFragmentPayloadSize = 9;
-const int hmisBamMaxPayloadSize = 1024;
-const int hmisBamMaxFragmentCount = 114;
+const int hmisBamFragmentPayloadSize = 8;
+const int hmisBamMaxPayloadSize = 512;
+const int hmisBamMaxFragmentCount = 64;
 const int hmisBamFragIndexAck = 0xFE;
 const int hmisBamFragIndexNack = 0xFF;
 
@@ -16,6 +16,7 @@ const int _fragIndexOffset = 4;
 const int _fragCountOffset = 5;
 const int _fragLengthOffset = 6;
 const int _payloadOffset = 7;
+const int _reservedOffset = 15;
 const int _controlPayloadLength = 3;
 
 enum HmisBamControlStatus {
@@ -141,6 +142,7 @@ class HmisBamFrameBuilder {
       data[_fragIndexOffset] = index;
       data[_fragCountOffset] = fragmentCount;
       data[_fragLengthOffset] = fragmentLength;
+      data[_reservedOffset] = 0;
       data.setRange(
         _payloadOffset,
         _payloadOffset + fragmentLength,
@@ -175,6 +177,7 @@ class HmisBamFrameBuilder {
     data[_payloadOffset] = fragmentIndex & 0xFF;
     data[_payloadOffset + 1] = status.value;
     data[_payloadOffset + 2] = nextExpectedIndex & 0xFF;
+    data[_reservedOffset] = 0;
     return HmiFrame(
       address: address & 0xFF,
       function: hmisBamFunction,
@@ -295,8 +298,28 @@ class HmisBamDecoder {
     final fragmentCount = frame.data[_fragCountOffset];
     final fragmentLength = frame.data[_fragLengthOffset];
 
-    if (fragmentIndex == hmisBamFragIndexAck ||
-        fragmentIndex == hmisBamFragIndexNack) {
+    final isControlFrame =
+        fragmentIndex == hmisBamFragIndexAck ||
+        fragmentIndex == hmisBamFragIndexNack;
+    if (frame.data[_reservedOffset] != 0) {
+      if (isControlFrame) {
+        return HmisBamDecodeResult(frame: frame, consumed: true);
+      }
+      return HmisBamDecodeResult(
+        frame: frame,
+        consumed: true,
+        controlToSend: _control(
+          frame,
+          transactionId,
+          hmisBamFragIndexNack,
+          fragmentIndex,
+          HmisBamControlStatus.badFragment,
+          _nextExpectedIndex,
+        ),
+      );
+    }
+
+    if (isControlFrame) {
       final control = _parseControl(frame, transactionId, fragmentIndex);
       if (control == null) {
         return const HmisBamDecodeResult(consumed: true);

@@ -80,7 +80,7 @@ class HmiSessionFrame {
   static const int protocolVersion = 0x01;
   static const int headerLength = 10;
   static const int crcLength = 2;
-  static const int maxPayloadLength = 1024;
+  static const int maxPayloadLength = 512;
 
   final HmiSessionFrameType type;
   final int sequence;

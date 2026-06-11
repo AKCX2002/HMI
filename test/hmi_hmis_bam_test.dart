@@ -24,6 +24,7 @@ void main() {
 
       expect(frames, isNotEmpty);
       expect(frames.first.address, 0x21);
+      expect(frames.first.data[15], 0);
       expect(
         frames.every((frame) => frame.function == hmisBamFunction),
         isTrue,
@@ -91,6 +92,7 @@ void main() {
     expect(ack.data[6], 3);
     expect(ack.data[7], HmisBamFrameBuilder.fragmentIndexOf(frames.last));
     expect(ack.data[8], HmisBamControlStatus.ok.value);
+    expect(ack.data[15], 0);
     expect(HmiFrame.tryDecode(ack.encode()), isNotNull);
   });
 
@@ -226,5 +228,49 @@ void main() {
     expect(result.consumed, isTrue);
     expect(result.receivedControl?.transactionId, 0x77);
     expect(decoder.isActive, isTrue);
+  });
+
+  test('rejects non-zero reserved byte in data and control frames', () {
+    final session = HmiSessionFrame(
+      type: HmiSessionFrameType.response,
+      sequence: 5,
+      command: HmiSessionCommand.hello,
+      payload: Uint8List.fromList(<int>[0x00, 0x01]),
+    ).encode();
+    final frames = HmisBamFrameBuilder().encodePayload(
+      address: 0xFA,
+      payload: session,
+    );
+    final badData = HmiFrame(
+      address: frames.first.address,
+      function: frames.first.function,
+      data: List<int>.from(frames.first.data)..[15] = 0x01,
+    );
+
+    final decoder = HmisBamDecoder();
+    final dataResult = decoder.acceptFrame(badData);
+    expect(dataResult.controlToSend, isNotNull);
+    expect(
+      HmisBamFrameBuilder.fragmentIndexOf(dataResult.controlToSend!),
+      hmisBamFragIndexNack,
+    );
+
+    final ack = HmisBamFrameBuilder().buildControl(
+      address: 0xFA,
+      transactionId: HmisBamFrameBuilder.readTransactionId(frames.first.data),
+      controlIndex: hmisBamFragIndexAck,
+      fragmentIndex: 0,
+      status: HmisBamControlStatus.ok,
+      nextExpectedIndex: 1,
+    );
+    final badAck = HmiFrame(
+      address: ack.address,
+      function: ack.function,
+      data: List<int>.from(ack.data)..[15] = 0x01,
+    );
+    final controlResult = decoder.acceptFrame(badAck);
+    expect(controlResult.consumed, isTrue);
+    expect(controlResult.receivedControl, isNull);
+    expect(controlResult.controlToSend, isNull);
   });
 }

@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""直接通过 /dev/ttyACM0 测试 MCU Session 协议 (HMIS-BAM)。"""
+"""旧版 Session-ID BAM 测试脚本，已废弃。
+
+当前固件/HMI 使用 `test_session_v3.py`：
+- `FUNC=0x7E` 承载 payload <= 10B 的 Session 单帧
+- `FUNC=0x7F` 承载 V3 TID BAM，单片 payload 8B + reserved(0x00)
+
+保留本文件仅用于追溯旧联调记录，不应用于当前设备测试。
+"""
 
 import struct
 import time
@@ -9,7 +16,7 @@ import serial
 # ── 常量 ──
 MCU_ADDR = 0xFA
 BAM_FUNC = 0x7F
-FRAG_PAYLOAD = 12
+FRAG_PAYLOAD = 8
 FRAME_SIZE = 20  # 20B 固定帧
 
 # Session 帧类型
@@ -304,6 +311,7 @@ def test_session_cmd(ser, sid, cmd, payload=b'', label=''):
 
 
 def main():
+    raise SystemExit('test_session.py 已废弃，请使用 test_session_v3.py')
     port = '/dev/ttyACM0'
     baud = 9600
     node_addr = 0xFA

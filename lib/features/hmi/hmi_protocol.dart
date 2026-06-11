@@ -1,5 +1,7 @@
 import '../../core/protocol/hmi_frame.dart';
 import 'hmi_hmis_bam.dart';
+import 'hmi_session_frame.dart';
+import 'hmi_session_single_frame.dart';
 
 /// 当前 HMI 仅保留打包机协议(0x40~0x4C)与自定义帧。
 enum HmiCommandCode {
@@ -122,6 +124,10 @@ HmiDecodedFrame _decodeHmisBamFrame(HmiFrame frame) {
   final fragIndex = d[4];
   final fragCount = d[5];
   final fragLength = d[6];
+  final reserved = d[15];
+  final reservedText = reserved == 0
+      ? 'reserved=00'
+      : 'reserved=0x${toHex2(reserved)}(非法)';
 
   if (fragIndex == hmisBamFragIndexAck || fragIndex == hmisBamFragIndexNack) {
     final status =
@@ -130,15 +136,44 @@ HmiDecodedFrame _decodeHmisBamFrame(HmiFrame frame) {
     return HmiDecodedFrame(
       title: 'HMIS-BAM ${_bamControlIndexName(fragIndex)}',
       summary:
-          'tid=$tid frag=${toHex2(d[7])} status=$status next=${toHex2(d[9])}',
+          'tid=$tid frag=${toHex2(d[7])} status=$status next=${toHex2(d[9])} $reservedText',
       rawDataHex: raw,
     );
   }
 
+  final payloadEnd =
+      7 +
+      (fragLength > hmisBamFragmentPayloadSize
+          ? hmisBamFragmentPayloadSize
+          : fragLength);
   return HmiDecodedFrame(
     title: 'HMIS-BAM DATA',
     summary:
-        'tid=$tid frag=$fragIndex/$fragCount len=$fragLength payload=${payloadToHex(d.sublist(7, 7 + fragLength))}',
+        'tid=$tid frag=$fragIndex/$fragCount len=$fragLength payload=${payloadToHex(d.sublist(7, payloadEnd))} $reservedText',
+    rawDataHex: raw,
+  );
+}
+
+HmiDecodedFrame _decodeHmiSessionSingleFrame(HmiFrame frame) {
+  final d = frame.data;
+  final raw = payloadToHex(d);
+  final type =
+      HmiSessionFrameType.tryParse(d[0])?.name.toUpperCase() ??
+      'UNKNOWN(0x${toHex2(d[0])})';
+  final sequence = d[1] | (d[2] << 8);
+  final command =
+      HmiSessionCommand.tryParse(d[3])?.name ?? 'UNKNOWN(0x${toHex2(d[3])})';
+  final length = d[5];
+  final payloadEnd =
+      6 +
+      (length > hmiSessionSingleFramePayloadSize
+          ? hmiSessionSingleFramePayloadSize
+          : length);
+  final invalid = length > hmiSessionSingleFramePayloadSize ? ' 非法LEN' : '';
+  return HmiDecodedFrame(
+    title: 'HMI Session SINGLE(0x7E)',
+    summary:
+        'type=$type seq=$sequence cmd=$command flags=0x${toHex2(d[4])} len=$length payload=${payloadToHex(d.sublist(6, payloadEnd))}$invalid',
     rawDataHex: raw,
   );
 }
@@ -400,6 +435,9 @@ HmiDecodedFrame decodeHmiFrameRx(HmiFrame frame) {
 
 /// 根据方向自动选择 Y（发送）或 Z（接收）解码。
 HmiDecodedFrame decodeHmiFrame(HmiFrame frame, {String direction = 'RX'}) {
+  if (frame.function == hmiSessionSingleFrameFunction) {
+    return _decodeHmiSessionSingleFrame(frame);
+  }
   if (frame.function == hmisBamFunction) {
     return _decodeHmisBamFrame(frame);
   }
